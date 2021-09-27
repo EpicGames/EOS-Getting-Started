@@ -14,6 +14,10 @@ Refer to the table below to get to the code that accompanies each blog post.
 | --- | --- |
 | [3. Setting up a C# solution for EOS in Visual Studio 2019](https://dev.epicgames.com/news/setting-up-a-c-solution-for-eos-in-visual-studio-2019) | [CSharp/EOSCSharpSample_3](CSharp/EOSCSharpSample_3) |
 
+## Issues
+
+If you notice a mistake in the code, please file an [issues](issue).
+
 ## License
 
 Getting Started series code is distributed under the terms of MIT License. See [LICENSE](LICENSE) for details.
