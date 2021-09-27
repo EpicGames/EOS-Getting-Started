@@ -2,7 +2,17 @@
 
 [![License](https://img.shields.io/github/license/mashape/apistatus.svg)](LICENSE)
 
-This repository contains the source code that accompanies the Epic Online Services - Getting Started articles, found on the [Epic Online Services blog](https://dev.epicgames.com/news). The full list of articles in the series can be found at the bottom of the [Introduction to Epic Online Services (EOS)](https://dev.epicgames.com/news/introduction-to-epic-online-services-eos) article.
+This repository contains the source code that accompanies the Epic Online Services - Getting Started blog posts, found 
+on the [Epic Online Services blog](https://dev.epicgames.com/news). The full list of blog posts in the series can be 
+found in the series reference of the [Introduction to Epic Online Services (EOS)](https://dev.epicgames.com/news/introduction-to-epic-online-services-eos#series-reference) article.
+
+## C# code
+
+Refer to the table below to get to the code that accompanies each blog post.
+
+| Blog post | Folder |
+| --- | --- |
+| [3. Setting up a C# solution for EOS in Visual Studio 2019](https://dev.epicgames.com/news/setting-up-a-c-solution-for-eos-in-visual-studio-2019) | [CSharp/EOSCSharpSample_3](CSharp/EOSCSharpSample_3) |
 
 ## License
 
