@@ -4,7 +4,7 @@
 
 This repository contains the source code that accompanies the Epic Online Services - Getting Started blog posts, found 
 on the [Epic Online Services blog](https://dev.epicgames.com/news). The full list of blog posts in the series can be 
-found in the series reference of the [Introduction to Epic Online Services (EOS)](https://dev.epicgames.com/news/introduction-to-epic-online-services-eos#series-reference) article.
+found in the series reference of the [Introduction to Epic Online Services (EOS)](https://dev.epicgames.com/news/introduction-to-epic-online-services-eos#series-reference) post.
 
 ## C# code
 
