@@ -16,7 +16,7 @@ Refer to the table below to get to the code that accompanies each blog post.
 
 ## Issues
 
-If you notice a mistake in the code, please file an [issues](issue).
+If you notice a mistake in the code, please file an [issue](issues).
 
 ## License
 
