@@ -13,6 +13,22 @@ Refer to the table below to get to the code that accompanies each blog post.
 | Blog post | Folder |
 | --- | --- |
 | [3. Setting up a C# solution for EOS in Visual Studio 2019](https://dev.epicgames.com/news/setting-up-a-c-solution-for-eos-in-visual-studio-2019) | [CSharp/EOSCSharpSample_3](CSharp/EOSCSharpSample_3) |
+| [4. Authenticating with Epic Account Services (EAS)](https://dev.epicgames.com/news/player-authentication-with-epic-account-services-eas) | [CSharp/EOSCSharpSample_4](CSharp/EOSCSharpSample_4) |
+
+## Requirements
+
+The solutions in this repository require Visual Studio 2019 with the following workloads & features:
+
+* C#
+  * Desktop & Mobile > .NET desktop development
+
+## Usage
+
+To compile and run each solution, follow these steps:
+
+1. Download the latest C# Epic Online Services SDK on the [Epic Games Developer Portal](https://dev.epicgames.com/portal/) (sign-up required).
+2. Copy the 'SDK\Source' directory from the downloaded SDK ZIP to the 'EOSCSharpSample\SDK' folder.
+3. Copy the 'EOSSDK-Win32-Shipping.dll' file from the 'SDK\Bin' directory of the downloaded SDK ZIP to the 'EOSCSharpSample\EOSCSharpSample' folder.
 
 ## Issues
 

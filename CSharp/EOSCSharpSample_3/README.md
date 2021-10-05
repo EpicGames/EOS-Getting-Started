@@ -5,3 +5,4 @@
 ## 3. Setting up a C# solution for EOS in Visual Studio 2019
 
 This is the code that accompanies the [3. Setting up a C# solution for EOS in Visual Studio 2019](https://dev.epicgames.com/news/setting-up-a-c-solution-for-eos-in-visual-studio-2019) blog post.
+For requirements and usage, please refer to the main repository [README](../../README.md).
