@@ -30,6 +30,7 @@ To compile and run each solution, follow these steps:
 1. Download the latest C# Epic Online Services SDK on the [Epic Games Developer Portal](https://dev.epicgames.com/portal/) (sign-up required).
 2. Copy the 'SDK\Source' directory from the downloaded SDK ZIP to the 'EOSCSharpSample\SDK' folder.
 3. Copy the 'EOSSDK-Win32-Shipping.dll' file from the 'SDK\Bin' directory of the downloaded SDK ZIP to the 'EOSCSharpSample\EOSCSharpSample' folder.
+4. Add your SDK credentials from the Developer Portal to the 'EOSCSharpSample\EOSCSharpSample\ApplicationSettings.cs' file.
 
 ## Issues
 
