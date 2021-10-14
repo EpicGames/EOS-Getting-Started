@@ -18,7 +18,7 @@ Refer to the table below to get to the code that accompanies each blog post.
 
 ## Requirements
 
-The solutions in this repository require Visual Studio 2019 with the following workloads & features:
+The solutions in this repository require [Visual Studio 2019](https://visualstudio.microsoft.com/vs/) with the following workloads & features:
 
 * C#
   * Desktop & Mobile > .NET desktop development
@@ -38,10 +38,10 @@ If you notice a mistake in the code, please file an [issue](../../issues).
 
 ## License
 
-Getting Started series code is distributed under the terms of MIT License. See [LICENSE](LICENSE) for details.
+Getting Started series code is distributed under the terms of MIT License. See the [LICENSE](LICENSE) for details.
 
 ## Code of Conduct
 
 This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
-For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
+For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/), or
 contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
