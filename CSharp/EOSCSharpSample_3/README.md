@@ -1,6 +1,6 @@
 # Epic Online Services - Getting Started series
 
-[![License](https://img.shields.io/github/license/mashape/apistatus.svg)](LICENSE)
+[![License](https://img.shields.io/github/license/mashape/apistatus.svg)](../../LICENSE)
 
 ## 3. Setting up a C# solution for EOS in Visual Studio 2019
 

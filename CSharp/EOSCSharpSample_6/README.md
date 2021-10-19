@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/github/license/mashape/apistatus.svg)](../../LICENSE)
 
-## 5. Getting and setting user presence
+## 6. Querying for Epic Friends and their status
 
-This is the code that accompanies the [5. Getting and setting user presence](https://dev.epicgames.com/en-US/news/getting-and-setting-player-presence) blog post.
+This is the code that accompanies the [6. Querying for Epic Friends and their status](https://dev.epicgames.com/news/querying-for-epic-friends-and-their-status) blog post.
 For requirements and usage, please refer to the main repository [README](../../README.md).

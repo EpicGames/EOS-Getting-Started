@@ -1,6 +1,6 @@
 # Epic Online Services - Getting Started series
 
-[![License](https://img.shields.io/github/license/mashape/apistatus.svg)](LICENSE)
+[![License](https://img.shields.io/github/license/mashape/apistatus.svg)](../../LICENSE)
 
 ## 4. Authenticating with Epic Account Services (EAS)
 
