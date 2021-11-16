@@ -1,0 +1,65 @@
+﻿<!-- Copyright Epic Games, Inc. All Rights Reserved. -->
+<Window x:Class="EOSCSharpSample.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:EOSCSharpSample" xmlns:views="clr-namespace:EOSCSharpSample.Views"
+        mc:Ignorable="d"
+        Title="MainWindow" Height="450" Width="800">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="1">
+                <StackPanel Orientation="Horizontal">
+                    <Button Width="100" Height="23" Margin="2" Command="{Binding AuthLogin}" Content="Auth Login" />
+                    <Button x:Name="AuthLogoutButton" Width="100" Height="23" Margin="2" Command="{Binding AuthLogout}" Content="Auth Logout" />
+                </StackPanel>
+                <Button x:Name="ConnectLoginButton" HorizontalAlignment="Right" Width="100" Height="23" Margin="2" Command="{Binding ConnectLogin}" Content="Connect Login" />
+            </StackPanel>
+
+            <StackPanel Grid.Column="0">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="AccountId:" Margin="2" />
+                    <TextBox Text="{Binding AccountId}" IsReadOnly="True" Margin="2" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="DisplayName:" Margin="2" />
+                    <TextBox Text="{Binding DisplayName}" IsReadOnly="True" Margin="2" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="ProductUserId:" Margin="2" />
+                    <TextBox Text="{Binding ProductUserId}" IsReadOnly="True" Margin="2" />
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <TabControl Grid.Row="1" Margin="0,10,0,0">
+            <TabItem x:Name="Presence" Header="Presence">
+                <views:PresenceView />
+            </TabItem>
+            <TabItem x:Name="Friends" Header="Friends">
+                <views:FriendsView />
+            </TabItem>
+        </TabControl>
+
+        <Grid Grid.Row="2" Height="18">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Margin="2,0,0,2" Grid.Column="0" Text="{Binding StatusBarText}" />
+            <ProgressBar Grid.Column="1" Height="18" Width="100" Visibility="{Binding StatusBarText, Converter={StaticResource StringToVisibilityConverter}}" IsIndeterminate="{Binding StatusBarText, Converter={StaticResource StringToBooleanConverter}}" />
+        </Grid>
+    </Grid>
+</Window>
