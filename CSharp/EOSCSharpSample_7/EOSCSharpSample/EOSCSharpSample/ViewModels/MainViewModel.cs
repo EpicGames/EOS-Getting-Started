@@ -35,6 +35,20 @@ namespace EOSCSharpSample.ViewModels
             set { SetProperty(ref _productUserId, value); }
         }
 
+        private ulong _connectAuthExpirationNotificationId;
+        public ulong ConnectAuthExpirationNotificationId
+        {
+            get { return _connectAuthExpirationNotificationId; }
+            set { SetProperty(ref _connectAuthExpirationNotificationId, value); }
+        }
+
+        private ulong _connectLoginStatusChangedNotificationId;
+        public ulong ConnectLoginStatusChangedNotificationId
+        {
+            get { return _connectLoginStatusChangedNotificationId; }
+            set { SetProperty(ref _connectLoginStatusChangedNotificationId, value); }
+        }
+
         public AuthLoginCommand AuthLogin { get; set; }
         public AuthLogoutCommand AuthLogout { get; set; }
         public ConnectLoginCommand ConnectLogin { get; set; }

@@ -134,6 +134,8 @@ namespace EOSCSharpSample.Services
                             ViewModelLocator.Main.AccountId = string.Empty;
                             ViewModelLocator.Main.DisplayName = string.Empty;
 
+                            ViewModelLocator.Main.ProductUserId = string.Empty;
+
                             ViewModelLocator.Main.StatusBarText = string.Empty;
                             ViewModelLocator.RaiseAuthCanExecuteChanged();
                         }
