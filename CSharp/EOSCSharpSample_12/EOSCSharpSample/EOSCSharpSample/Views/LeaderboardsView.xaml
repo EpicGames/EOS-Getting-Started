@@ -1,0 +1,70 @@
+﻿<!-- Copyright Epic Games, Inc. All Rights Reserved. -->
+<UserControl x:Class="EOSCSharpSample.Views.LeaderboardsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="clr-namespace:EOSCSharpSample.Views"
+             mc:Ignorable="d" 
+             d:DesignHeight="450" d:DesignWidth="800">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+
+        <StackPanel Grid.Column="1">
+            <Button Width="100" Height="23" Margin="2" Content="Query definitions" Command="{Binding LeaderboardsQueryDefinitions}" />
+            <Button Width="100" Height="23" Margin="2" Content="Query ranks" Command="{Binding LeaderboardsQueryRanks}" />
+        </StackPanel>
+
+        <Grid Grid.Column="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="3*" />
+            </Grid.ColumnDefinitions>
+
+            <ListView x:Name="LeaderboardsListView" Grid.Column="0" Margin="2" ItemsSource="{Binding Leaderboards}" SelectedItem="{Binding SelectedLeaderboard}" SelectionChanged="LeaderboardsListView_SelectionChanged">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="LeaderboardId" Width="160" DisplayMemberBinding="{Binding LeaderboardId}">
+                            <GridViewColumn.HeaderContainerStyle>
+                                <Style TargetType="{x:Type GridViewColumnHeader}">
+                                    <Setter Property="HorizontalContentAlignment" Value="Left" />
+                                </Style>
+                            </GridViewColumn.HeaderContainerStyle>
+                        </GridViewColumn>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+
+            <ListView x:Name="LeaderboardRecordsListView" Grid.Column="1" Margin="2" ItemsSource="{Binding LeaderboardRecords}">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="Rank" Width="100" DisplayMemberBinding="{Binding Rank}">
+                            <GridViewColumn.HeaderContainerStyle>
+                                <Style TargetType="{x:Type GridViewColumnHeader}">
+                                    <Setter Property="HorizontalContentAlignment" Value="Left" />
+                                </Style>
+                            </GridViewColumn.HeaderContainerStyle>
+                        </GridViewColumn>
+                        <GridViewColumn Header="UserDisplayName" Width="200" DisplayMemberBinding="{Binding UserDisplayName}">
+                            <GridViewColumn.HeaderContainerStyle>
+                                <Style TargetType="{x:Type GridViewColumnHeader}">
+                                    <Setter Property="HorizontalContentAlignment" Value="Left" />
+                                </Style>
+                            </GridViewColumn.HeaderContainerStyle>
+                        </GridViewColumn>
+                        <GridViewColumn Header="Score" Width="150" DisplayMemberBinding="{Binding Score}">
+                            <GridViewColumn.HeaderContainerStyle>
+                                <Style TargetType="{x:Type GridViewColumnHeader}">
+                                    <Setter Property="HorizontalContentAlignment" Value="Left" />
+                                </Style>
+                            </GridViewColumn.HeaderContainerStyle>
+                        </GridViewColumn>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </Grid>
+    </Grid>
+</UserControl>
