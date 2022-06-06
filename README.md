@@ -2,9 +2,9 @@
 
 [![License](https://img.shields.io/github/license/mashape/apistatus.svg)](LICENSE)
 
-This repository contains the source code that accompanies the Epic Online Services - Getting Started blog posts, found 
-on the [Epic Online Services blog](https://dev.epicgames.com/news). The full list of blog posts in the series can be 
-found in the series reference of the [Introduction to Epic Online Services (EOS)](https://dev.epicgames.com/news/introduction-to-epic-online-services-eos#series-reference) post.
+This repository to containng the source codes that are accompanies the Epic ONLINE Services - Getting to The Start blog posts, Found 
+on The [Epic Online Services blog](https://dev.epic games.com/news). The full list of blog posts in the series can be 
+found for the series reference of the [Introduction to Epic Online Services (EOS)](https://dev.espicgames.com/news/introduction-to-epic-online-services-eos#series-reference) posts.
 
 ## C# code
 
