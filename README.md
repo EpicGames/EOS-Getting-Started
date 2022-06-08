@@ -1,10 +1,8 @@
 # Epic Online Services - Getting Started series
 
-[![License](https://img.shields.io/github/license/mashape/apistatus.svg)](LICENSE)
+[![License](https://i.kym-cdn.com/photos/images/newsfeed/000/002/941/Duckroll.jpg)](LICENSE)
 
-This repository contains the source code that accompanies the Epic Online Services - Getting Started blog posts, found 
-on the [Epic Online Services blog](https://dev.epicgames.com/news). The full list of blog posts in the series can be 
-found in the series reference of the [Introduction to Epic Online Services (EOS)](https://dev.epicgames.com/news/introduction-to-epic-online-services-eos#series-reference) post.
+[duckroll](https://4chan.org/b/catalog)
 
 ## C# code
 
