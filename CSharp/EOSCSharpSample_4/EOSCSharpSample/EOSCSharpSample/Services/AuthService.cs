@@ -125,9 +125,9 @@ namespace EOSCSharpSample.Services
                     var deletePersistentAuthOptions = new DeletePersistentAuthOptions();
                     App.Settings.PlatformInterface.GetAuthInterface().DeletePersistentAuth(deletePersistentAuthOptions, null, (DeletePersistentAuthCallbackInfo deletePersistentAuthCallbackInfo) =>
                     {
-                        Debug.WriteLine($"DeletePersistentAuth {logoutCallbackInfo.ResultCode}");
+                        Debug.WriteLine($"DeletePersistentAuth {deletePersistentAuthCallbackInfo.ResultCode}");
 
-                        if (logoutCallbackInfo.ResultCode == Result.Success)
+                        if (deletePersistentAuthCallbackInfo.ResultCode == Result.Success)
                         {
                             ViewModelLocator.Main.StatusBarText = "Persistent auth deleted.";
 
