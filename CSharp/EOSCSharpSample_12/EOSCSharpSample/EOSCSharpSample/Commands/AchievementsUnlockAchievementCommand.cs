@@ -6,16 +6,16 @@ using EOSCSharpSample.ViewModels;
 
 namespace EOSCSharpSample.Commands
 {
-    public class AchievementsUnlockAchievementCommand : CommandBase
+    public class AchievementsUnlockAchievementsCommand : CommandBase
     {
         public override bool CanExecute(object parameter)
         {
-            return ViewModelLocator.Achievements.SelectedAchievement != null;
+            return ViewModelLocator.Achievements.SelectedAchievement.AchievementId != null;
         }
 
         public override void Execute(object parameter)
         {
-            AchievementsService.UnlockAchievement(ViewModelLocator.Achievements.SelectedAchievement);
+            AchievementsService.UnlockAchievements(ViewModelLocator.Achievements.SelectedAchievement);
         }
     }
 }

@@ -32,13 +32,13 @@ namespace EOSCSharpSample.ViewModels
 
         public AchievementsQueryDefinitionsCommand AchievementsQueryDefinitions { get; set; }
         public AchievementsQueryPlayerAchievementsCommand AchievementsQueryPlayerAchievements { get; set; }
-        public AchievementsUnlockAchievementCommand AchievementsUnlockAchievement { get; set; }
+        public AchievementsUnlockAchievementsCommand AchievementsUnlockAchievements { get; set; }
 
         public AchievementsViewModel()
         {
             AchievementsQueryDefinitions = new AchievementsQueryDefinitionsCommand();
             AchievementsQueryPlayerAchievements = new AchievementsQueryPlayerAchievementsCommand();
-            AchievementsUnlockAchievement = new AchievementsUnlockAchievementCommand();
+            AchievementsUnlockAchievements = new AchievementsUnlockAchievementsCommand();
         }
     }
 }

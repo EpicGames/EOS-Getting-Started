@@ -26,7 +26,7 @@ namespace EOSCSharpSample.Services
                 AccountId = EpicAccountId.FromString(ViewModelLocator.Main.AccountId)
             };
 
-            var result = authInterface.CopyIdToken(copyIdTokenOptions, out var userAuthToken);
+            var result = authInterface.CopyIdToken(ref copyIdTokenOptions, out var userAuthToken);
 
             if (result == Result.Success)
             {
@@ -42,14 +42,14 @@ namespace EOSCSharpSample.Services
                     Credentials = new Credentials()
                     {
                         Type = ExternalCredentialType.EpicIdToken,
-                        Token = userAuthToken.JsonWebToken
+                        Token = userAuthToken.Value.JsonWebToken
                     }
                 };
 
                 ViewModelLocator.Main.StatusBarText = "Requesting user login...";
 
                 // Ensure platform tick is called on an interval, or the following call will never callback.
-                connectInterface.Login(loginOptions, null, (LoginCallbackInfo loginCallbackInfo) =>
+                connectInterface.Login(ref loginOptions, null, (ref LoginCallbackInfo loginCallbackInfo) =>
                 {
                     Debug.WriteLine($"Connect login {loginCallbackInfo.ResultCode}");
 
@@ -57,8 +57,11 @@ namespace EOSCSharpSample.Services
                     {
                         ViewModelLocator.Main.StatusBarText = "Connect login successful.";
 
-                        ViewModelLocator.Main.ConnectAuthExpirationNotificationId = connectInterface.AddNotifyAuthExpiration(new AddNotifyAuthExpirationOptions(), null, AuthExpirationCallback);
-                        ViewModelLocator.Main.ConnectLoginStatusChangedNotificationId = connectInterface.AddNotifyLoginStatusChanged(new AddNotifyLoginStatusChangedOptions(), null, LoginStatusChangedCallback);
+                        var notifyAuthExpirationOptions = new AddNotifyAuthExpirationOptions();
+                        var notifyLoginStatusChangedOptions = new AddNotifyLoginStatusChangedOptions();
+
+                        ViewModelLocator.Main.ConnectAuthExpirationNotificationId = connectInterface.AddNotifyAuthExpiration(ref notifyAuthExpirationOptions, null, AuthExpirationCallback);
+                        ViewModelLocator.Main.ConnectLoginStatusChangedNotificationId = connectInterface.AddNotifyLoginStatusChanged(ref notifyLoginStatusChangedOptions, null, LoginStatusChangedCallback);
 
                         ViewModelLocator.Main.ProductUserId = loginCallbackInfo.LocalUserId.ToString();
                     }
@@ -74,18 +77,21 @@ namespace EOSCSharpSample.Services
                                 ContinuanceToken = loginCallbackInfo.ContinuanceToken
                             };
 
-                            connectInterface.CreateUser(createUserOptions, null, (CreateUserCallbackInfo createUserCallbackInfo) =>
+                            connectInterface.CreateUser(ref createUserOptions, null, (ref CreateUserCallbackInfo createUserCallbackInfo) =>
                             {
                                 if (createUserCallbackInfo.ResultCode == Result.Success)
                                 {
                                     ViewModelLocator.Main.StatusBarText = "User successfully created.";
 
-                                    ViewModelLocator.Main.ConnectAuthExpirationNotificationId = connectInterface.AddNotifyAuthExpiration(new AddNotifyAuthExpirationOptions(), null, AuthExpirationCallback);
-                                    ViewModelLocator.Main.ConnectLoginStatusChangedNotificationId = connectInterface.AddNotifyLoginStatusChanged(new AddNotifyLoginStatusChangedOptions(), null, LoginStatusChangedCallback);
+                                    var notifyAuthExpirationOptions = new AddNotifyAuthExpirationOptions();
+                                    var notifyLoginStatusChangedOptions = new AddNotifyLoginStatusChangedOptions();
+
+                                    ViewModelLocator.Main.ConnectAuthExpirationNotificationId = connectInterface.AddNotifyAuthExpiration(ref notifyAuthExpirationOptions, null, AuthExpirationCallback);
+                                    ViewModelLocator.Main.ConnectLoginStatusChangedNotificationId = connectInterface.AddNotifyLoginStatusChanged(ref notifyLoginStatusChangedOptions, null, LoginStatusChangedCallback);
 
                                     ViewModelLocator.Main.ProductUserId = createUserCallbackInfo.LocalUserId.ToString();
                                 }
-                                else if (Common.IsOperationComplete(loginCallbackInfo.ResultCode))
+                                else if (Common.IsOperationComplete(createUserCallbackInfo.ResultCode))
                                 {
                                     Debug.WriteLine("User creation failed: " + createUserCallbackInfo.ResultCode);
                                 }
@@ -115,11 +121,11 @@ namespace EOSCSharpSample.Services
             }
         }
 
-        private static void AuthExpirationCallback(AuthExpirationCallbackInfo data)
+        private static void AuthExpirationCallback(ref AuthExpirationCallbackInfo data)
         {
             // Handle 10-minute warning prior to token expiration by calling Connect.Login()
         }
-        private static void LoginStatusChangedCallback(LoginStatusChangedCallbackInfo data)
+        private static void LoginStatusChangedCallback(ref LoginStatusChangedCallbackInfo data)
         {
             switch (data.CurrentStatus)
             {

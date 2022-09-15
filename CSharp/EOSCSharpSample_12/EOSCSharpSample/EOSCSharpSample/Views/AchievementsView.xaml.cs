@@ -17,7 +17,7 @@ namespace EOSCSharpSample.Views
 
         private void AchievementsListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            ViewModel.AchievementsUnlockAchievement.RaiseCanExecuteChanged();
+            ViewModel.AchievementsUnlockAchievements.RaiseCanExecuteChanged();
         }
     }
 }

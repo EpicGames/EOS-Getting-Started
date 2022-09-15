@@ -28,12 +28,6 @@ namespace EOSCSharpSample.ViewModels
             get { return _titleStorage ??= new TitleStorageViewModel(); }
         }
 
-        private static PlayerDataStorageViewModel _playerDataStorage;
-        public static PlayerDataStorageViewModel PlayerDataStorage
-        {
-            get { return _playerDataStorage ??= new PlayerDataStorageViewModel(); }
-        }
-
         public static void RaiseAuthCanExecuteChanged()
         {
             Main.AuthLogin.RaiseCanExecuteChanged();

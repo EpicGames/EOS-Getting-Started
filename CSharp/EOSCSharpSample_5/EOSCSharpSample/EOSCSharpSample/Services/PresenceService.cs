@@ -19,13 +19,13 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = "Querying user presence...";
 
-            App.Settings.PlatformInterface.GetPresenceInterface().QueryPresence(queryPresenceOptions, null, (QueryPresenceCallbackInfo queryPresenceCallbackInfo) =>
+            App.Settings.PlatformInterface.GetPresenceInterface().QueryPresence(ref queryPresenceOptions, null, (ref QueryPresenceCallbackInfo queryPresenceCallbackInfo) =>
             {
                 Debug.WriteLine($"QueryPresence {queryPresenceCallbackInfo.ResultCode}");
 
                 if (queryPresenceCallbackInfo.ResultCode == Result.Success)
                 {
-                    CopyPresence(queryPresenceCallbackInfo.LocalUserId, queryPresenceCallbackInfo.TargetUserId);
+                    Copy(queryPresenceCallbackInfo.LocalUserId, queryPresenceCallbackInfo.TargetUserId);
                 }
                 else if (Common.IsOperationComplete(queryPresenceCallbackInfo.ResultCode))
                 {
@@ -43,18 +43,18 @@ namespace EOSCSharpSample.Services
                 TargetUserId = targetUserId
             };
 
-            var result = App.Settings.PlatformInterface.GetPresenceInterface().CopyPresence(copyPresenceOptions, out var info);
+            var result = App.Settings.PlatformInterface.GetPresenceInterface().CopyPresence(ref copyPresenceOptions, out var info);
             if (result == Result.Success)
             {
                 ViewModelLocator.Main.StatusBarText = "User presence retrieved.";
 
                 if (localUserId == targetUserId)
                 {
-                    ViewModelLocator.Presence.Status = info.Status;
-                    ViewModelLocator.Presence.ProductIdText = info.ProductId;
-                    ViewModelLocator.Presence.ProductVersionText = info.ProductVersion;
-                    ViewModelLocator.Presence.PlatformText = info.Platform;
-                    ViewModelLocator.Presence.RichText = info.RichText;
+                    ViewModelLocator.Presence.Status = info.Value.Status;
+                    ViewModelLocator.Presence.ProductIdText = info.Value.ProductId;
+                    ViewModelLocator.Presence.ProductVersionText = info.Value.ProductVersion;
+                    ViewModelLocator.Presence.PlatformText = info.Value.Platform;
+                    ViewModelLocator.Presence.RichText = info.Value.RichText;
                 }
 
                 ViewModelLocator.Main.StatusBarText = string.Empty;
@@ -71,7 +71,7 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = "Creating presence modification...";
 
-            var result = App.Settings.PlatformInterface.GetPresenceInterface().CreatePresenceModification(createPresenceModificationOptions, out var presenceModification);
+            var result = App.Settings.PlatformInterface.GetPresenceInterface().CreatePresenceModification(ref createPresenceModificationOptions, out var presenceModification);
 
             Debug.WriteLine($"CreatePresenceModification {result}");
 
@@ -82,7 +82,7 @@ namespace EOSCSharpSample.Services
                     Status = ViewModelLocator.Presence.Status
                 };
 
-                result = presenceModification.SetStatus(setStatusOptions);
+                result = presenceModification.SetStatus(ref setStatusOptions);
                 Debug.WriteLine($"SetStatus {result}");
 
                 var setPresenceOptions = new SetPresenceOptions()
@@ -93,7 +93,7 @@ namespace EOSCSharpSample.Services
 
                 ViewModelLocator.Main.StatusBarText = "Setting presence status...";
 
-                App.Settings.PlatformInterface.GetPresenceInterface().SetPresence(setPresenceOptions, null, (SetPresenceCallbackInfo setPresenceCallbackInfo) =>
+                App.Settings.PlatformInterface.GetPresenceInterface().SetPresence(ref setPresenceOptions, null, (ref SetPresenceCallbackInfo setPresenceCallbackInfo) =>
                 {
                     Debug.WriteLine($"SetPresence {setPresenceCallbackInfo.ResultCode}");
                     if (Common.IsOperationComplete(setPresenceCallbackInfo.ResultCode))

@@ -26,7 +26,7 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = $"Ingesting stats (count: <{count}>)...";
 
-            App.Settings.PlatformInterface.GetStatsInterface().IngestStat(ingestStatOptions, null, (IngestStatCompleteCallbackInfo ingestStatCompleteCallbackInfo) =>
+            App.Settings.PlatformInterface.GetStatsInterface().IngestStat(ref ingestStatOptions, null, (ref IngestStatCompleteCallbackInfo ingestStatCompleteCallbackInfo) =>
             {
                 Debug.WriteLine($"IngestStat {ingestStatCompleteCallbackInfo.ResultCode}");
 
@@ -48,7 +48,7 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = $"Querying stats...";
 
-            App.Settings.PlatformInterface.GetStatsInterface().QueryStats(queryStatsOptions, null, (OnQueryStatsCompleteCallbackInfo onQueryStatsCompleteCallbackInfo) =>
+            App.Settings.PlatformInterface.GetStatsInterface().QueryStats(ref queryStatsOptions, null, (ref OnQueryStatsCompleteCallbackInfo onQueryStatsCompleteCallbackInfo) =>
             {
                 Debug.WriteLine($"QueryStats {onQueryStatsCompleteCallbackInfo.ResultCode}");
 
@@ -58,7 +58,7 @@ namespace EOSCSharpSample.Services
                     {
                         TargetUserId = ProductUserId.FromString(ViewModelLocator.Main.ProductUserId)
                     };
-                    var statCount = App.Settings.PlatformInterface.GetStatsInterface().GetStatsCount(getStatCountOptions);
+                    var statCount = App.Settings.PlatformInterface.GetStatsInterface().GetStatsCount(ref getStatCountOptions);
 
                     for (uint i = 0; i < statCount; i++)
                     {
@@ -67,11 +67,11 @@ namespace EOSCSharpSample.Services
                             StatIndex = i,
                             TargetUserId = ProductUserId.FromString(ViewModelLocator.Main.ProductUserId)
                         };
-                        var result = App.Settings.PlatformInterface.GetStatsInterface().CopyStatByIndex(copyStatByIndexOptions, out var stat);
+                        var result = App.Settings.PlatformInterface.GetStatsInterface().CopyStatByIndex(ref copyStatByIndexOptions, out var stat);
 
                         if (result == Result.Success)
                         {
-                            ViewModelLocator.Stats.Stats.Add(stat);
+                            ViewModelLocator.Stats.Stats.Add(stat.Value);
                         }
                     }
                 }

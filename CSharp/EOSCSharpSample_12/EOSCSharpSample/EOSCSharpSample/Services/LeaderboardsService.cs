@@ -18,14 +18,14 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = $"Querying leaderboard definitions...";
 
-            App.Settings.PlatformInterface.GetLeaderboardsInterface().QueryLeaderboardDefinitions(queryLeaderboardDefinitionsOptions, null, (OnQueryLeaderboardDefinitionsCompleteCallbackInfo onQueryLeaderboardDefinitionsCompleteCallbackInfo) =>
+            App.Settings.PlatformInterface.GetLeaderboardsInterface().QueryLeaderboardDefinitions(ref queryLeaderboardDefinitionsOptions, null, (ref OnQueryLeaderboardDefinitionsCompleteCallbackInfo onQueryLeaderboardDefinitionsCompleteCallbackInfo) =>
             {
                 Debug.WriteLine($"QueryLeaderboardDefinitions {onQueryLeaderboardDefinitionsCompleteCallbackInfo.ResultCode}");
 
                 if (onQueryLeaderboardDefinitionsCompleteCallbackInfo.ResultCode == Result.Success)
                 {
                     var getLeaderboardDefinitionCountOptions = new GetLeaderboardDefinitionCountOptions();
-                    var leaderboardDefinitionCount = App.Settings.PlatformInterface.GetLeaderboardsInterface().GetLeaderboardDefinitionCount(getLeaderboardDefinitionCountOptions);
+                    var leaderboardDefinitionCount = App.Settings.PlatformInterface.GetLeaderboardsInterface().GetLeaderboardDefinitionCount(ref getLeaderboardDefinitionCountOptions);
 
                     for (uint i = 0; i < leaderboardDefinitionCount; i++)
                     {
@@ -33,11 +33,11 @@ namespace EOSCSharpSample.Services
                         {
                             LeaderboardIndex = i
                         };
-                        var result = App.Settings.PlatformInterface.GetLeaderboardsInterface().CopyLeaderboardDefinitionByIndex(copyLeaderboardDefinitionByIndexOptions, out var leaderboardDefinition);
+                        var result = App.Settings.PlatformInterface.GetLeaderboardsInterface().CopyLeaderboardDefinitionByIndex(ref copyLeaderboardDefinitionByIndexOptions, out var leaderboardDefinition);
 
                         if (result == Result.Success)
                         {
-                            ViewModelLocator.Leaderboards.Leaderboards.Add(leaderboardDefinition);
+                            ViewModelLocator.Leaderboards.Leaderboards.Add(leaderboardDefinition.Value);
                         }
                     }
                 }
@@ -56,14 +56,14 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = $"Querying leaderboard ranks...";
 
-            App.Settings.PlatformInterface.GetLeaderboardsInterface().QueryLeaderboardRanks(queryLeaderboardRanksOptions, null, (OnQueryLeaderboardRanksCompleteCallbackInfo onQueryLeaderboardRanksCompleteCallbackInfo) =>
+            App.Settings.PlatformInterface.GetLeaderboardsInterface().QueryLeaderboardRanks(ref queryLeaderboardRanksOptions, null, (ref OnQueryLeaderboardRanksCompleteCallbackInfo onQueryLeaderboardRanksCompleteCallbackInfo) =>
             {
                 Debug.WriteLine($"QueryLeaderboardRanks {onQueryLeaderboardRanksCompleteCallbackInfo.ResultCode}");
 
                 if (onQueryLeaderboardRanksCompleteCallbackInfo.ResultCode == Result.Success)
                 {
                     var getLeaderboardRecordCountOptions = new GetLeaderboardRecordCountOptions();
-                    var leaderboardRecordCount = App.Settings.PlatformInterface.GetLeaderboardsInterface().GetLeaderboardRecordCount(getLeaderboardRecordCountOptions);
+                    var leaderboardRecordCount = App.Settings.PlatformInterface.GetLeaderboardsInterface().GetLeaderboardRecordCount(ref getLeaderboardRecordCountOptions);
 
                     for (uint i = 0; i < leaderboardRecordCount; i++)
                     {
@@ -71,11 +71,11 @@ namespace EOSCSharpSample.Services
                         {
                             LeaderboardRecordIndex = i
                         };
-                        var result = App.Settings.PlatformInterface.GetLeaderboardsInterface().CopyLeaderboardRecordByIndex(copyLeaderboardRecordByIndexOptions, out var leaderboardRecord);
+                        var result = App.Settings.PlatformInterface.GetLeaderboardsInterface().CopyLeaderboardRecordByIndex(ref copyLeaderboardRecordByIndexOptions, out var leaderboardRecord);
 
                         if (result == Result.Success)
                         {
-                            ViewModelLocator.Leaderboards.LeaderboardRecords.Add(leaderboardRecord);
+                            ViewModelLocator.Leaderboards.LeaderboardRecords.Add(leaderboardRecord.Value);
                         }
                     }
                 }

@@ -12,7 +12,7 @@ namespace EOSCSharpSample.Commands
     {
         public override bool CanExecute(object parameter)
         {
-            return ViewModelLocator.Leaderboards.SelectedLeaderboard != null;
+            return ViewModelLocator.Leaderboards.SelectedLeaderboard.LeaderboardId != null;
         }
 
         public override void Execute(object parameter)

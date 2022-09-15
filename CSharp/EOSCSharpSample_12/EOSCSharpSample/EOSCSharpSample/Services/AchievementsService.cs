@@ -18,14 +18,14 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = $"Querying achievement definitions...";
 
-            App.Settings.PlatformInterface.GetAchievementsInterface().QueryDefinitions(queryLeaderboardDefinitionsOptions, null, (OnQueryDefinitionsCompleteCallbackInfo onQueryDefinitionsCompleteCallbackInfo) =>
+            App.Settings.PlatformInterface.GetAchievementsInterface().QueryDefinitions(ref queryLeaderboardDefinitionsOptions, null, (ref OnQueryDefinitionsCompleteCallbackInfo onQueryDefinitionsCompleteCallbackInfo) =>
             {
                 Debug.WriteLine($"QueryDefinitions {onQueryDefinitionsCompleteCallbackInfo.ResultCode}");
 
                 if (onQueryDefinitionsCompleteCallbackInfo.ResultCode == Result.Success)
                 {
                     var getAchievementDefinitionCountOptions = new GetAchievementDefinitionCountOptions();
-                    var achievementDefinitionCount = App.Settings.PlatformInterface.GetAchievementsInterface().GetAchievementDefinitionCount(getAchievementDefinitionCountOptions);
+                    var achievementDefinitionCount = App.Settings.PlatformInterface.GetAchievementsInterface().GetAchievementDefinitionCount(ref getAchievementDefinitionCountOptions);
 
                     for (uint i = 0; i < achievementDefinitionCount; i++)
                     {
@@ -33,11 +33,11 @@ namespace EOSCSharpSample.Services
                         {
                             AchievementIndex = i
                         };
-                        var result = App.Settings.PlatformInterface.GetAchievementsInterface().CopyAchievementDefinitionV2ByIndex(copyAchievementDefinitionByIndexOptions, out var achievementDefinition);
+                        var result = App.Settings.PlatformInterface.GetAchievementsInterface().CopyAchievementDefinitionV2ByIndex(ref copyAchievementDefinitionByIndexOptions, out var achievementDefinition);
 
                         if (result == Result.Success)
                         {
-                            ViewModelLocator.Achievements.Achievements.Add(achievementDefinition);
+                            ViewModelLocator.Achievements.Achievements.Add(achievementDefinition.Value);
                         }
                     }
                 }
@@ -58,7 +58,7 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = $"Querying player achievements...";
 
-            App.Settings.PlatformInterface.GetAchievementsInterface().QueryPlayerAchievements(queryPlayerAchievementsOptions, null, (OnQueryPlayerAchievementsCompleteCallbackInfo onQueryPlayerAchievementsCompleteCallbackInfo) =>
+            App.Settings.PlatformInterface.GetAchievementsInterface().QueryPlayerAchievements(ref queryPlayerAchievementsOptions, null, (ref OnQueryPlayerAchievementsCompleteCallbackInfo onQueryPlayerAchievementsCompleteCallbackInfo) =>
             {
                 Debug.WriteLine($"QueryPlayerAchievements {onQueryPlayerAchievementsCompleteCallbackInfo.ResultCode}");
 
@@ -68,7 +68,7 @@ namespace EOSCSharpSample.Services
                     {
                         UserId = ProductUserId.FromString(ViewModelLocator.Main.ProductUserId)
                     };
-                    var playerAchievementCount = App.Settings.PlatformInterface.GetAchievementsInterface().GetPlayerAchievementCount(getPlayerAchievementCountOptions);
+                    var playerAchievementCount = App.Settings.PlatformInterface.GetAchievementsInterface().GetPlayerAchievementCount(ref getPlayerAchievementCountOptions);
 
                     for (uint i = 0; i < playerAchievementCount; i++)
                     {
@@ -78,11 +78,11 @@ namespace EOSCSharpSample.Services
                             TargetUserId = ProductUserId.FromString(ViewModelLocator.Main.ProductUserId),
                             AchievementIndex = i
                         };
-                        var result = App.Settings.PlatformInterface.GetAchievementsInterface().CopyPlayerAchievementByIndex(copyPlayerAchievementByIndexOptions, out var playerAchievement);
+                        var result = App.Settings.PlatformInterface.GetAchievementsInterface().CopyPlayerAchievementByIndex(ref copyPlayerAchievementByIndexOptions, out var playerAchievement);
 
                         if (result == Result.Success)
                         {
-                            ViewModelLocator.Achievements.PlayerAchievements.Add(playerAchievement);
+                            ViewModelLocator.Achievements.PlayerAchievements.Add(playerAchievement.Value);
                         }
                     }
                 }
@@ -91,17 +91,17 @@ namespace EOSCSharpSample.Services
             });
         }
 
-        public static void UnlockAchievement(DefinitionV2 achievementDefinition)
+        public static void UnlockAchievements(DefinitionV2 achievementDefinition)
         {
             var unlockAchievementsOptions = new UnlockAchievementsOptions()
             {
                 UserId = ProductUserId.FromString(ViewModelLocator.Main.ProductUserId),
-                AchievementIds = new string[] { achievementDefinition.AchievementId }
+                AchievementIds = new Utf8String[] { achievementDefinition.AchievementId }
             };
 
             ViewModelLocator.Main.StatusBarText = $"Unlocking <{achievementDefinition.AchievementId}>...";
 
-            App.Settings.PlatformInterface.GetAchievementsInterface().UnlockAchievements(unlockAchievementsOptions, null, (OnUnlockAchievementsCompleteCallbackInfo onUnlockAchievementsCompleteCallbackInfo) =>
+            App.Settings.PlatformInterface.GetAchievementsInterface().UnlockAchievements(ref unlockAchievementsOptions, null, (ref OnUnlockAchievementsCompleteCallbackInfo onUnlockAchievementsCompleteCallbackInfo) =>
             {
                 Debug.WriteLine($"UnlockAchievements {onUnlockAchievementsCompleteCallbackInfo.ResultCode}");
 
@@ -122,10 +122,10 @@ namespace EOSCSharpSample.Services
         public static ulong AddNotification()
         {
             var addNotifyAchievementsUnlockedV2Options = new AddNotifyAchievementsUnlockedV2Options();
-            return App.Settings.PlatformInterface.GetAchievementsInterface().AddNotifyAchievementsUnlockedV2(addNotifyAchievementsUnlockedV2Options, null, AchievementsUnlockedCallback);
+            return App.Settings.PlatformInterface.GetAchievementsInterface().AddNotifyAchievementsUnlockedV2(ref addNotifyAchievementsUnlockedV2Options, null, AchievementsUnlockedCallback);
         }
 
-        private static void AchievementsUnlockedCallback(OnAchievementsUnlockedCallbackV2Info data)
+        private static void AchievementsUnlockedCallback(ref OnAchievementsUnlockedCallbackV2Info data)
         {
             Debug.WriteLine("Achievement unlocked: " + data.AchievementId);
             // Additional achievement unlock logic goes here

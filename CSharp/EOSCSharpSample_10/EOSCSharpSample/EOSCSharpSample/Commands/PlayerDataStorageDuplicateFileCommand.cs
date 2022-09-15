@@ -10,7 +10,7 @@ namespace EOSCSharpSample.Commands
     {
         public override bool CanExecute(object parameter)
         {
-            return ViewModelLocator.PlayerDataStorage.SelectedPlayerDataStorageFile != null;
+            return ViewModelLocator.PlayerDataStorage.SelectedPlayerDataStorageFile.Filename != null;
         }
 
         public override void Execute(object parameter)

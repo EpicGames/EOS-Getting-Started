@@ -37,7 +37,7 @@ namespace EOSCSharpSample.Services
             ViewModelLocator.Main.StatusBarText = "Requesting user login...";
 
             // Ensure platform tick is called on an interval, or the following call will never callback.
-            authInterface.Login(loginOptions, null, (LoginCallbackInfo loginCallbackInfo) =>
+            authInterface.Login(ref loginOptions, null, (ref LoginCallbackInfo loginCallbackInfo) =>
             {
                 Debug.WriteLine($"Auth login {loginCallbackInfo.ResultCode}");
 
@@ -66,7 +66,7 @@ namespace EOSCSharpSample.Services
 
                     ViewModelLocator.Main.StatusBarText = "Getting user info...";
 
-                    userInfoInterface.QueryUserInfo(queryUserInfoOptions, null, (QueryUserInfoCallbackInfo queryUserInfoCallbackInfo) =>
+                    userInfoInterface.QueryUserInfo(ref queryUserInfoOptions, null, (ref QueryUserInfoCallbackInfo queryUserInfoCallbackInfo) =>
                     {
                         Debug.WriteLine($"QueryUserInfo {queryUserInfoCallbackInfo.ResultCode}");
 
@@ -83,12 +83,12 @@ namespace EOSCSharpSample.Services
                                 TargetUserId = queryUserInfoCallbackInfo.TargetUserId
                             };
 
-                            var result = userInfoInterface.CopyUserInfo(copyUserInfoOptions, out var userInfoData);
+                            var result = userInfoInterface.CopyUserInfo(ref copyUserInfoOptions, out var userInfoData);
                             Debug.WriteLine($"CopyUserInfo: {result}");
 
                             if (userInfoData != null)
                             {
-                                ViewModelLocator.Main.DisplayName = userInfoData.DisplayName;
+                                ViewModelLocator.Main.DisplayName = userInfoData.Value.DisplayName;
                             }
 
                             ViewModelLocator.Main.StatusBarText = string.Empty;
@@ -112,7 +112,7 @@ namespace EOSCSharpSample.Services
                 LocalUserId = EpicAccountId.FromString(ViewModelLocator.Main.AccountId)
             };
 
-            App.Settings.PlatformInterface.GetAuthInterface().Logout(logoutOptions, null, (LogoutCallbackInfo logoutCallbackInfo) =>
+            App.Settings.PlatformInterface.GetAuthInterface().Logout(ref logoutOptions, null, (ref LogoutCallbackInfo logoutCallbackInfo) =>
             {
                 Debug.WriteLine($"Logout {logoutCallbackInfo.ResultCode}");
 
@@ -123,11 +123,11 @@ namespace EOSCSharpSample.Services
                     // If the EOS_LCT_PersistentAuth login type has been used, call the function EOS_Auth_DeletePersistentAuth to revoke the cached authentication as well.
                     // This permanently erases the local user login on PC Desktop and Mobile.
                     var deletePersistentAuthOptions = new DeletePersistentAuthOptions();
-                    App.Settings.PlatformInterface.GetAuthInterface().DeletePersistentAuth(deletePersistentAuthOptions, null, (DeletePersistentAuthCallbackInfo deletePersistentAuthCallbackInfo) =>
+                    App.Settings.PlatformInterface.GetAuthInterface().DeletePersistentAuth(ref deletePersistentAuthOptions, null, (ref DeletePersistentAuthCallbackInfo deletePersistentAuthCallbackInfo) =>
                     {
-                        Debug.WriteLine($"DeletePersistentAuth {logoutCallbackInfo.ResultCode}");
+                        Debug.WriteLine($"DeletePersistentAuth {deletePersistentAuthCallbackInfo.ResultCode}");
 
-                        if (logoutCallbackInfo.ResultCode == Result.Success)
+                        if (deletePersistentAuthCallbackInfo.ResultCode == Result.Success)
                         {
                             ViewModelLocator.Main.StatusBarText = "Persistent auth deleted.";
 

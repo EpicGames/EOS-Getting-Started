@@ -20,7 +20,7 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = $"Querying title storage file <{queryFileOptions.Filename}>...";
 
-            App.Settings.PlatformInterface.GetTitleStorageInterface().QueryFile(queryFileOptions, null, (QueryFileCallbackInfo queryFileCallbackInfo) =>
+            App.Settings.PlatformInterface.GetTitleStorageInterface().QueryFile(ref queryFileOptions, null, (ref QueryFileCallbackInfo queryFileCallbackInfo) =>
             {
                 Debug.WriteLine($"QueryFile {queryFileCallbackInfo.ResultCode}");
 
@@ -31,11 +31,11 @@ namespace EOSCSharpSample.Services
                         LocalUserId = ProductUserId.FromString(ViewModelLocator.Main.ProductUserId),
                         Filename = fileName
                     };
-                    var result = App.Settings.PlatformInterface.GetTitleStorageInterface().CopyFileMetadataByFilename(copyFileMetadataByFilenameOptions, out var metadata);
+                    var result = App.Settings.PlatformInterface.GetTitleStorageInterface().CopyFileMetadataByFilename(ref copyFileMetadataByFilenameOptions, out var metadata);
 
                     if (result == Result.Success)
                     {
-                        ViewModelLocator.TitleStorage.TitleStorageFiles.Add(metadata);
+                        ViewModelLocator.TitleStorage.TitleStorageFiles.Add(metadata.Value);
                     }
                 }
 
@@ -48,12 +48,12 @@ namespace EOSCSharpSample.Services
             var queryFileListOptions = new QueryFileListOptions()
             {
                 LocalUserId = ProductUserId.FromString(ViewModelLocator.Main.ProductUserId),
-                ListOfTags = new string[] { tag }
+                ListOfTags = new Utf8String[] { tag }
             };
 
             ViewModelLocator.Main.StatusBarText = $"Querying title storage files by tag <{tag}>...";
 
-            App.Settings.PlatformInterface.GetTitleStorageInterface().QueryFileList(queryFileListOptions, null, (QueryFileListCallbackInfo queryFileListCallbackInfo) =>
+            App.Settings.PlatformInterface.GetTitleStorageInterface().QueryFileList(ref queryFileListOptions, null, (ref QueryFileListCallbackInfo queryFileListCallbackInfo) =>
             {
                 Debug.WriteLine($"QueryFileList {queryFileListCallbackInfo.ResultCode}");
 
@@ -66,11 +66,11 @@ namespace EOSCSharpSample.Services
                             Index = i,
                             LocalUserId = ProductUserId.FromString(ViewModelLocator.Main.ProductUserId)
                         };
-                        var result = App.Settings.PlatformInterface.GetTitleStorageInterface().CopyFileMetadataAtIndex(copyFileMetadataAtIndexOptions, out var metadata);
+                        var result = App.Settings.PlatformInterface.GetTitleStorageInterface().CopyFileMetadataAtIndex(ref copyFileMetadataAtIndexOptions, out var metadata);
 
                         if (result == Result.Success)
                         {
-                            ViewModelLocator.TitleStorage.TitleStorageFiles.Add(metadata);
+                            ViewModelLocator.TitleStorage.TitleStorageFiles.Add(metadata.Value);
                         }
                     }
                 }
@@ -86,13 +86,13 @@ namespace EOSCSharpSample.Services
                 LocalUserId = ProductUserId.FromString(ViewModelLocator.Main.ProductUserId),
                 Filename = fileMetadata.Filename,
                 ReadChunkLengthBytes = 1048576,
-                ReadFileDataCallback = (ReadFileDataCallbackInfo readFileDataCallbackInfo) =>
+                ReadFileDataCallback = (ref ReadFileDataCallbackInfo readFileDataCallbackInfo) =>
                 {
                     using var fs = new FileStream($"{App.Settings.CacheDirectory}{readFileDataCallbackInfo.Filename}", FileMode.Append, FileAccess.Write);
-                    fs.Write(readFileDataCallbackInfo.DataChunk, 0, readFileDataCallbackInfo.DataChunk.Length);
+                    fs.Write(readFileDataCallbackInfo.DataChunk.ToArray(), 0, readFileDataCallbackInfo.DataChunk.Count);
                     return ReadResult.RrContinuereading;
                 },
-                FileTransferProgressCallback = (FileTransferProgressCallbackInfo fileTransferProgressCallbackInfo) =>
+                FileTransferProgressCallback = (ref FileTransferProgressCallbackInfo fileTransferProgressCallbackInfo) =>
                 {
                     var percentComplete = (double)fileTransferProgressCallbackInfo.BytesTransferred / (double)fileTransferProgressCallbackInfo.TotalFileSizeBytes * 100;
                     ViewModelLocator.Main.StatusBarText = $"Downloading file <{fileTransferProgressCallbackInfo.Filename}> ({System.Math.Ceiling(percentComplete)}%)...";
@@ -101,7 +101,7 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = $"Downloading file <{readFileOptions.Filename}> (creating buffer)...";
 
-            var fileTransferRequest = App.Settings.PlatformInterface.GetTitleStorageInterface().ReadFile(readFileOptions, null, (ReadFileCallbackInfo readFileCallbackInfo) =>
+            var fileTransferRequest = App.Settings.PlatformInterface.GetTitleStorageInterface().ReadFile(ref readFileOptions, null, (ref ReadFileCallbackInfo readFileCallbackInfo) =>
             {
                 Debug.WriteLine($"ReadFile {readFileCallbackInfo.ResultCode}");
 

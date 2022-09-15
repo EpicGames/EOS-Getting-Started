@@ -20,7 +20,7 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = "Querying player data storage file list...";
 
-            App.Settings.PlatformInterface.GetPlayerDataStorageInterface().QueryFileList(queryFileListOptions, null, (QueryFileListCallbackInfo queryFileListCallbackInfo) =>
+            App.Settings.PlatformInterface.GetPlayerDataStorageInterface().QueryFileList(ref queryFileListOptions, null, (ref QueryFileListCallbackInfo queryFileListCallbackInfo) =>
             {
                 Debug.WriteLine($"QueryFileList {queryFileListCallbackInfo.ResultCode}");
 
@@ -33,11 +33,11 @@ namespace EOSCSharpSample.Services
                             Index = i,
                             LocalUserId = ProductUserId.FromString(ViewModelLocator.Main.ProductUserId)
                         };
-                        var result = App.Settings.PlatformInterface.GetPlayerDataStorageInterface().CopyFileMetadataAtIndex(copyFileMetadataAtIndexOptions, out var metadata);
+                        var result = App.Settings.PlatformInterface.GetPlayerDataStorageInterface().CopyFileMetadataAtIndex(ref copyFileMetadataAtIndexOptions, out var metadata);
 
                         if (result == Result.Success)
                         {
-                            ViewModelLocator.PlayerDataStorage.PlayerDataStorageFiles.Add(metadata);
+                            ViewModelLocator.PlayerDataStorage.PlayerDataStorageFiles.Add(metadata.Value);
                         }
                     }
                 }
@@ -55,7 +55,7 @@ namespace EOSCSharpSample.Services
                 LocalUserId = ProductUserId.FromString(ViewModelLocator.Main.ProductUserId),
                 Filename = openFileDialog.SafeFileName,
                 ChunkLengthBytes = 10485760,
-                WriteFileDataCallback = (WriteFileDataCallbackInfo writeFileDataCallbackInfo, out byte[] buffer) =>
+                WriteFileDataCallback = (ref WriteFileDataCallbackInfo writeFileDataCallbackInfo, out ArraySegment<byte> buffer) =>
                 {
                     using var fs = new FileStream($"{openFileDialog.FileName}", FileMode.Open, FileAccess.Read);
                     if (fs.Length > bytesWritten)
@@ -72,7 +72,7 @@ namespace EOSCSharpSample.Services
                     }
                     return WriteResult.ContinueWriting;
                 },
-                FileTransferProgressCallback = (FileTransferProgressCallbackInfo fileTransferProgressCallbackInfo) =>
+                FileTransferProgressCallback = (ref FileTransferProgressCallbackInfo fileTransferProgressCallbackInfo) =>
                 {
                     var percentComplete = (double)fileTransferProgressCallbackInfo.BytesTransferred / (double)fileTransferProgressCallbackInfo.TotalFileSizeBytes * 100;
                     ViewModelLocator.Main.StatusBarText = $"Downloading file <{fileTransferProgressCallbackInfo.Filename}> ({System.Math.Ceiling(percentComplete)}%)...";
@@ -81,7 +81,7 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = $"Uploading file <{writeFileOptions.Filename}> (creating buffer)...";
 
-            var fileTransferRequest = App.Settings.PlatformInterface.GetPlayerDataStorageInterface().WriteFile(writeFileOptions, null, (WriteFileCallbackInfo writeFileCallbackInfo) =>
+            var fileTransferRequest = App.Settings.PlatformInterface.GetPlayerDataStorageInterface().WriteFile(ref writeFileOptions, null, (ref WriteFileCallbackInfo writeFileCallbackInfo) =>
             {
                 Debug.WriteLine($"WriteFile {writeFileCallbackInfo.ResultCode}");
 
@@ -112,13 +112,13 @@ namespace EOSCSharpSample.Services
                 LocalUserId = ProductUserId.FromString(ViewModelLocator.Main.ProductUserId),
                 Filename = fileMetadata.Filename,
                 ReadChunkLengthBytes = 1048576,
-                ReadFileDataCallback = (ReadFileDataCallbackInfo readFileDataCallbackInfo) =>
+                ReadFileDataCallback = (ref ReadFileDataCallbackInfo readFileDataCallbackInfo) =>
                 {
                     using var fs = new FileStream($"{App.Settings.CacheDirectory}{readFileDataCallbackInfo.Filename}", FileMode.Append, FileAccess.Write);
-                    fs.Write(readFileDataCallbackInfo.DataChunk, 0, readFileDataCallbackInfo.DataChunk.Length);
+                    fs.Write(readFileDataCallbackInfo.DataChunk.ToArray(), 0, readFileDataCallbackInfo.DataChunk.Count);
                     return ReadResult.ContinueReading;
                 },
-                FileTransferProgressCallback = (FileTransferProgressCallbackInfo fileTransferProgressCallbackInfo) =>
+                FileTransferProgressCallback = (ref FileTransferProgressCallbackInfo fileTransferProgressCallbackInfo) =>
                 {
                     var percentComplete = (double)fileTransferProgressCallbackInfo.BytesTransferred / (double)fileTransferProgressCallbackInfo.TotalFileSizeBytes * 100;
                     ViewModelLocator.Main.StatusBarText = $"Downloading file <{fileTransferProgressCallbackInfo.Filename}> ({System.Math.Ceiling(percentComplete)}%)...";
@@ -127,7 +127,7 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = $"Downloading file <{readFileOptions.Filename}> (creating buffer)...";
 
-            var fileTransferRequest = App.Settings.PlatformInterface.GetPlayerDataStorageInterface().ReadFile(readFileOptions, null, (ReadFileCallbackInfo readFileCallbackInfo) =>
+            var fileTransferRequest = App.Settings.PlatformInterface.GetPlayerDataStorageInterface().ReadFile(ref readFileOptions, null, (ref ReadFileCallbackInfo readFileCallbackInfo) =>
             {
                 Debug.WriteLine($"ReadFile {readFileCallbackInfo.ResultCode}");
 
@@ -156,7 +156,7 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = $"Copying <{duplicateFileOptions.SourceFilename}> as <{duplicateFileOptions.DestinationFilename}>...";
 
-            App.Settings.PlatformInterface.GetPlayerDataStorageInterface().DuplicateFile(duplicateFileOptions, null, (DuplicateFileCallbackInfo duplicateFileCallbackInfo) =>
+            App.Settings.PlatformInterface.GetPlayerDataStorageInterface().DuplicateFile(ref duplicateFileOptions, null, (ref DuplicateFileCallbackInfo duplicateFileCallbackInfo) =>
             {
                 Debug.WriteLine($"DuplicateFile {duplicateFileCallbackInfo.ResultCode}");
 
@@ -183,7 +183,7 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = $"Deleting <{deleteFileOptions.Filename}>...";
 
-            App.Settings.PlatformInterface.GetPlayerDataStorageInterface().DeleteFile(deleteFileOptions, null, (DeleteFileCallbackInfo deleteFileCallbackInfo) =>
+            App.Settings.PlatformInterface.GetPlayerDataStorageInterface().DeleteFile(ref deleteFileOptions, null, (ref DeleteFileCallbackInfo deleteFileCallbackInfo) =>
             {
                 Debug.WriteLine($"DeleteFile {deleteFileCallbackInfo.ResultCode}");
 

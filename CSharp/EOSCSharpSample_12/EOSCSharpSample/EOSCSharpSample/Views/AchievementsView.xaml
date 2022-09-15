@@ -19,7 +19,7 @@
 
         <StackPanel Grid.Column="1" Grid.Row="0">
             <Button Width="100" Height="23" Margin="2" Content="Query definitions" Command="{Binding AchievementsQueryDefinitions}" />
-            <Button Width="100" Height="23" Margin="2" Content="Unlock" Command="{Binding AchievementsUnlockAchievement}" />
+            <Button Width="100" Height="23" Margin="2" Content="Unlock" Command="{Binding AchievementsUnlockAchievements}" />
         </StackPanel>
 
         <ListView x:Name="AchievementsListView" Grid.Column="0" Margin="2" ItemsSource="{Binding Achievements}" SelectedItem="{Binding SelectedAchievement}" SelectionChanged="AchievementsListView_SelectionChanged">

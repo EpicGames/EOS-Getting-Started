@@ -20,7 +20,7 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = $"Querying friends...";
 
-            App.Settings.PlatformInterface.GetFriendsInterface().QueryFriends(queryFriendsOptions, null, (QueryFriendsCallbackInfo queryFriendsCallbackInfo) =>
+            App.Settings.PlatformInterface.GetFriendsInterface().QueryFriends(ref queryFriendsOptions, null, (ref QueryFriendsCallbackInfo queryFriendsCallbackInfo) =>
             {
                 Debug.WriteLine($"QueryFriends {queryFriendsCallbackInfo.ResultCode}");
 
@@ -30,7 +30,7 @@ namespace EOSCSharpSample.Services
                     {
                         LocalUserId = EpicAccountId.FromString(ViewModelLocator.Main.AccountId)
                     };
-                    var friendsCount = App.Settings.PlatformInterface.GetFriendsInterface().GetFriendsCount(getFriendsCountOptions);
+                    var friendsCount = App.Settings.PlatformInterface.GetFriendsInterface().GetFriendsCount(ref getFriendsCountOptions);
 
                     for (int i = 0; i < friendsCount; i++)
                     {
@@ -39,7 +39,7 @@ namespace EOSCSharpSample.Services
                             LocalUserId = EpicAccountId.FromString(ViewModelLocator.Main.AccountId),
                             Index = i
                         };
-                        var friend = App.Settings.PlatformInterface.GetFriendsInterface().GetFriendAtIndex(getFriendAtIndexOptions);
+                        var friend = App.Settings.PlatformInterface.GetFriendsInterface().GetFriendAtIndex(ref getFriendAtIndexOptions);
 
                         if (friend != null)
                         {
@@ -48,7 +48,7 @@ namespace EOSCSharpSample.Services
                                 LocalUserId = EpicAccountId.FromString(ViewModelLocator.Main.AccountId),
                                 TargetUserId = friend
                             };
-                            var friendStatus = App.Settings.PlatformInterface.GetFriendsInterface().GetStatus(getStatusOptions);
+                            var friendStatus = App.Settings.PlatformInterface.GetFriendsInterface().GetStatus(ref getStatusOptions);
 
                             ViewModelLocator.Friends.Friends.Add(new Friend()
                             {
@@ -72,11 +72,12 @@ namespace EOSCSharpSample.Services
 
             ViewModelLocator.Main.StatusBarText = $"Adding notification for friends updates...";
 
-            ViewModelLocator.Friends.NotificationId = App.Settings.PlatformInterface.GetFriendsInterface().AddNotifyFriendsUpdate(addNotifyFriendsUpdateOptions, null, (OnFriendsUpdateInfo onFriendsUpdateInfo) =>
+            ViewModelLocator.Friends.NotificationId = App.Settings.PlatformInterface.GetFriendsInterface().AddNotifyFriendsUpdate(ref addNotifyFriendsUpdateOptions, null, (ref OnFriendsUpdateInfo onFriendsUpdateInfo) =>
             {
-                Debug.WriteLine($"OnFriendsUpdate: {onFriendsUpdateInfo.TargetUserId}");
+                var targetUserId = onFriendsUpdateInfo.TargetUserId;
+                Debug.WriteLine($"OnFriendsUpdate: {targetUserId}");
 
-                ViewModelLocator.Friends.Friends.SingleOrDefault(f => f.EpicAccountId == onFriendsUpdateInfo.TargetUserId).FriendsStatus = onFriendsUpdateInfo.CurrentStatus;
+                ViewModelLocator.Friends.Friends.SingleOrDefault(f => f.EpicAccountId == targetUserId).FriendsStatus = onFriendsUpdateInfo.CurrentStatus;
             });
 
             ViewModelLocator.Friends.FriendsSubscribeUpdates.RaiseCanExecuteChanged();

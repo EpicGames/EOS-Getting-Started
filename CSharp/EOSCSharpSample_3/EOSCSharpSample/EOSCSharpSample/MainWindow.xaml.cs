@@ -43,13 +43,13 @@ namespace EOSCSharpSample
 
             // The Platform Interface is the entry point to the SDK, and you will need an instance of this interface to use EOS. To create one, call Epic.OnlineServices.Platform.PlatformInterface.
             // Initialize with some basic information about your application
-            var result = PlatformInterface.Initialize(initializeOptions);
+            var result = PlatformInterface.Initialize(ref initializeOptions);
             Debug.WriteLine($"Initialize: {result}");
 
             // The SDK outputs useful debugging information through an internal interface.
             // To enable this feature, set up Epic.OnlineServices.Logging.LoggingInterface as early as possible, preferably immediately after initializing the SDK
             _ = LoggingInterface.SetLogLevel(LogCategory.AllCategories, LogLevel.Info);
-            _ = LoggingInterface.SetCallback((LogMessage message) => Debug.WriteLine($"[{message.Level}] {message.Category} - {message.Message}"));
+            _ = LoggingInterface.SetCallback((ref LogMessage message) => Debug.WriteLine($"[{message.Level}] {message.Category} - {message.Message}"));
 
             var options = new Options()
             {
@@ -65,7 +65,7 @@ namespace EOSCSharpSample
                 IsServer = false
             };
             // then call Epic.OnlineServices.Platform.PlatformInterface.Create with the values you have obtained from the Developer Portal to get an Epic.OnlineServices.Platform.PlatformInterface instance
-            PlatformInterface platformInterface = PlatformInterface.Create(options);
+            PlatformInterface platformInterface = PlatformInterface.Create(ref options);
 
             if (platformInterface == null)
             {
