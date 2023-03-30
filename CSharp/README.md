@@ -1,10 +1,9 @@
-# Epic Online Services - Getting Started content
+# Epic Online Services - Getting Started C# content
 
-[![License](https://img.shields.io/github/license/mashape/apistatus.svg)](LICENSE)
+[![License](https://img.shields.io/github/license/mashape/apistatus.svg)](../LICENSE)
 
-This repository contains the source code that accompanies the various Epic Online Services tutorials, found 
-on the [Epic Online Services blog](https://dev.epicgames.com/news) and [Epic Developer Community](https://dev.epicgames.com/community/). 
-The content covers getting started using C# and Unreal Engine using the Online Subsystem (OSS). 
+This repository contains the source code that accompanies the Epic Online Services C# tutorials, found 
+on the [Epic Online Services blog](https://dev.epicgames.com/news). 
 
 ## C# code
 
@@ -24,26 +23,18 @@ found in the series reference of the [Introduction to Epic Online Services (EOS)
 | [11. Rank player scores using leaderboards](https://dev.epicgames.com/news/rank-player-scores-using-leaderboards) | [CSharp/EOSCSharpSample_11](CSharp/EOSCSharpSample_11) | 1.15.2 |
 | [12. Adding achievements to your game](https://dev.epicgames.com/news/adding-achievements-to-your-game) | [CSharp/EOSCSharpSample_12](CSharp/EOSCSharpSample_12) | 1.15.2 |
 
-Learn more about the requirements and how to use the C# code in the [readme file in the CSharp folder](CSharp).
+## Requirements
 
-## Unreal Engine Online Subsystem (OSS) code
+The solutions in this repository require Visual Studio 2019 or Visual Studio 2022 with the following workloads & features:
 
-Coming soon.
+* C#
+  * Desktop & Mobile > .NET desktop development
 
-## Issues
+## Usage
 
-If you notice a mistake in the code, please file an [issue](../../issues).
+To compile and run each solution, follow these steps:
 
-## License
-
-Getting Started series code is distributed under the terms of MIT License. See the [LICENSE](LICENSE) for details.
-
-## Code of Conduct
-
-This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
-
-Resources:
-
-- [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/)
-- [Microsoft Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/)
-- Contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with questions or concerns
+1. Download the latest C# Epic Online Services SDK on the [Epic Online Services website](https://dev.epicgames.com/sdk).
+2. Copy the `SDK\Source` directory from the downloaded SDK ZIP to the `EOSCSharpSample\SDK` folder.
+3. Copy the `EOSSDK-Win32-Shipping.dll` file from the 'SDK\Bin' directory of the downloaded SDK ZIP to the `EOSCSharpSample\EOSCSharpSample` folder.
+4. Set up a product in the [Epic Games Developer Portal](https://dev.epicgames.com/portal/) (sign-up required) and add your product's SDK credentials to the `EOSCSharpSample\EOSCSharpSample\ApplicationSettings.cs` file.
