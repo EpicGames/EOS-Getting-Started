@@ -1,0 +1,1 @@
+"<Path to UnrealEditor.exe>" "<Path to .uproject file>" ThirdPersonMap -server -log -epicapp="Server"

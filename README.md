@@ -28,7 +28,17 @@ Learn more about the requirements and how to use the C# code in the [readme file
 
 ## Unreal Engine Online Subsystem (OSS) code
 
-Coming soon.
+This is the code of an Unreal Engine project built using the Third Person feature pack. The project shows how to integrate our [Epic Online Services Online Subsystem plugin.](https://docs.unrealengine.com/5.1/en-US/online-subsystem-eos-plugin-in-unreal-engine/) in a game. This code accompanies a soon to be release tutorial series. The table below lists the tutorial entries in this series. Unlike the Csharp code, the UE code isn't structured per tutorial, but instead structured in a way it could be done in a real game. **The code currently is up to Tutorial 4 - Joining EOS Sessions hosted on dedicated server.** 
+
+| Tutorial | Release Date |
+| --- | --- |
+| Plugin Configuration | TBD |
+| Signing-in | TBD |
+| Setting up a dedicated server to host EOS Sessions | TBD |
+| Joining EOS Sessions hosted on dedicated server | TBD |
+| Setting up Peer-to-Peer and EOS Lobbies | TBD |
+| EOS Stats, Achievements and Leaderboards | TBD |
+| EOS Player and Title Data Storage | TBD |
 
 ## Issues
 
