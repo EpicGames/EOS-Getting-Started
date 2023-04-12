@@ -148,7 +148,7 @@ void AEOSPlayerController::HandleFindSessionsCompleted(bool bWasSuccessful, TSha
     IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
     IOnlineSessionPtr Session = Subsystem->GetSessionInterface();
 
-    if (bWasSuccessful)
+    if (bWasSuccessful && !Search->SearchResults.IsEmpty())
     {
         UE_LOG(LogTemp, Log, TEXT("Found session."));
 
