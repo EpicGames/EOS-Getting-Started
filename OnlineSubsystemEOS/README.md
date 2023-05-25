@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/github/license/mashape/apistatus.svg)](../LICENSE)
 
-This repository contains the source code that accompanies a soon to be released tutorial series on the [EOS Online Subsystem plugin](https://docs.unrealengine.com/5.1/en-US/online-subsystem-eos-plugin-in-unreal-engine/).
+This repository contains the source code that accompanies a soon to be released tutorial series on the course: [The EOS Online Subsystem (OSS) Plugin](https://dev.epicgames.com/community/learning/courses/1px/unreal-engine-online-services-the-eos-online-subsystem-oss-plugin/Lnjn/unreal-engine-online-services-introduction).
 
 ## Requirements
 
@@ -16,4 +16,4 @@ To compile and run the project, follow these steps:
 2. In the root folder, right-click on the .uproject file and select "Generate Visual Studio Project Files". 
 3. Open the solution in Visual Studio, and build it. 
 
-**The tutorial series is a walkthrough on how to build this code. It will soon be released.**  
+**The course is a walkthrough on how this code was written.**  
