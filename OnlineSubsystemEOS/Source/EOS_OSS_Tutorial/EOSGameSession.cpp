@@ -2,6 +2,7 @@
 
 
 #include "EOSGameSession.h"
+#include "EOSPlayerController.h"
 #include "OnlineSubsystem.h"
 #include "OnlineSubsystemUtils.h"
 #include "OnlineSubsystemTypes.h"
@@ -27,6 +28,7 @@ void AEOSGameSession::BeginPlay()
 {
     // Tutorial 3: Overide base function to create session when running as dedicated server 
     Super::BeginPlay();
+
     if (IsRunningDedicatedServer() && !bSessionExists) // Only create a session if running as a dedicated server and session doesn't exist
     {
         CreateSession("KeyName", "KeyValue"); // Should parametrized Key/Value pair for custom attribute
@@ -82,10 +84,10 @@ void AEOSGameSession::CreateSession(FName KeyName, FString KeyValue) // Dedicate
     // Set session settings 
     TSharedRef<FOnlineSessionSettings> SessionSettings = MakeShared<FOnlineSessionSettings>();
     SessionSettings->NumPublicConnections = MaxNumberOfPlayersInSession; //We will test our sessions with 2 players to keep things simple
-    SessionSettings->bShouldAdvertise = true; //This creates a public match and will be searchable.
+    SessionSettings->bShouldAdvertise = true; //This creates a public match and will be searchable. This will set the session as joinable via presence. 
     SessionSettings->bUsesPresence = false;   //No presence on dedicated server. This requires a local user.
-    SessionSettings->bAllowJoinViaPresence = false;
-    SessionSettings->bAllowJoinViaPresenceFriendsOnly = false;
+    SessionSettings->bAllowJoinViaPresence = false; // superset by bShouldAdvertise and will be true on the backend
+    SessionSettings->bAllowJoinViaPresenceFriendsOnly = false; // superset by bShouldAdvertise and will be true on the backend
     SessionSettings->bAllowInvites = false;    //Allow inviting players into session. This requires presence and a local user. 
     SessionSettings->bAllowJoinInProgress = false; //Once the session is started, no one can join.
     SessionSettings->bIsDedicated = true; //Session created on dedicated server.
@@ -102,6 +104,8 @@ void AEOSGameSession::CreateSession(FName KeyName, FString KeyValue) // Dedicate
     if (!Session->CreateSession(0, SessionName, *SessionSettings))
     {
         UE_LOG(LogTemp, Warning, TEXT("Failed to create session!"));
+        Session->ClearOnCreateSessionCompleteDelegate_Handle(CreateSessionDelegateHandle);
+        CreateSessionDelegateHandle.Reset();
     }
 }
 
@@ -146,6 +150,8 @@ void AEOSGameSession::RegisterPlayer(APlayerController* NewPlayer, const FUnique
         if (!Session->RegisterPlayer(SessionName, *UniqueId, false))
         {
             UE_LOG(LogTemp, Warning, TEXT("Failed to Register Player!"));
+            Session->ClearOnRegisterPlayersCompleteDelegate_Handle(RegisterPlayerDelegateHandle);
+            RegisterPlayerDelegateHandle.Reset();
         }
     }    
 }
@@ -179,32 +185,34 @@ void AEOSGameSession::UnregisterPlayer(const APlayerController* ExitingPlayer)
 {
     // Tutorial 3: Override base function to Unregister player in EOS Session
     Super::UnregisterPlayer(ExitingPlayer);
-    
+
     // Only need to unregisted the player in the EOS Session on the Server 
     if (IsRunningDedicatedServer())
     {
         IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+        IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface(); 
         IOnlineSessionPtr Session = Subsystem->GetSessionInterface();
 
-        // Bind delegate to callback function
-        UnregisterPlayerDelegateHandle =
-            Session->AddOnUnregisterPlayersCompleteDelegate_Handle(FOnUnregisterPlayersCompleteDelegate::CreateUObject(
-                this,
-                &ThisClass::HandleUnregisterPlayerCompleted));
-
-        if (ExitingPlayer->Player) // If the player leaves ungracefully this could be null
+        if (ExitingPlayer->PlayerState) // If the player leaves ungracefully this could be null
         {
-            FUniqueNetIdRepl NetId = Cast<UNetConnection>(ExitingPlayer->Player)->PlayerId;
-            if (!Session->UnregisterPlayer(SessionName, *NetId))
+            // Bind delegate to callback function
+            UnregisterPlayerDelegateHandle =
+                Session->AddOnUnregisterPlayersCompleteDelegate_Handle(FOnUnregisterPlayersCompleteDelegate::CreateUObject(
+                    this,
+                    &ThisClass::HandleUnregisterPlayerCompleted));
+
+            if (!Session->UnregisterPlayer(SessionName, *ExitingPlayer->PlayerState->UniqueId))
             {
                 UE_LOG(LogTemp, Warning, TEXT("Failed to Unregister Player!"));
+                Session->ClearOnUnregisterPlayersCompleteDelegate_Handle(UnregisterPlayerDelegateHandle);
+                UnregisterPlayerDelegateHandle.Reset();
             }
         }
         else
         {
             UE_LOG(LogTemp, Warning, TEXT("Failed to Unregister Player!"));
         }
-        
+
     }
 }
 
@@ -242,7 +250,9 @@ void AEOSGameSession::StartSession()
     
     if (!Session->StartSession(SessionName))
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to start session!")); 
+        UE_LOG(LogTemp, Warning, TEXT("Failed to start session!"));
+        Session->ClearOnStartSessionCompleteDelegate_Handle(StartSessionDelegateHandle);
+        StartSessionDelegateHandle.Reset();
     }
 }
 
@@ -281,6 +291,8 @@ void AEOSGameSession::EndSession()
     if (!Session->EndSession(SessionName))
     {
         UE_LOG(LogTemp, Warning, TEXT("Failed to end session!"));
+        Session->ClearOnEndSessionCompleteDelegate_Handle(StartSessionDelegateHandle);
+        EndSessionDelegateHandle.Reset();
     }
 }
 
@@ -321,6 +333,8 @@ void AEOSGameSession::DestroySession()
     if (!Session->DestroySession(SessionName))
     {
         UE_LOG(LogTemp, Warning, TEXT("Failed to destroy session.")); // Log to the UE logs that we are trying to log in. 
+        Session->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionDelegateHandle);
+        DestroySessionDelegateHandle.Reset();
     }
 }
 

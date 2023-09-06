@@ -36,9 +36,12 @@ class AEOS_OSS_TutorialCharacter : public ACharacter
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	class UInputAction* LookAction;
 
+	/** Look Input Action */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	class UInputAction* QuitAction;
+
 public:
 	AEOS_OSS_TutorialCharacter();
-	
 
 protected:
 
@@ -47,14 +50,26 @@ protected:
 
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
-			
 
+	/** Called for quit input */
+	void Quit();
+			
 protected:
 	// APawn interface
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	
 	// To add mapping context
 	virtual void BeginPlay();
+
+	// Override base class jump to update jump stat
+	virtual void Jump() override; 
+
+	// Override base class StopJumping to set bIsJumping to false once jumping is complete 
+	virtual void StopJumping() override; 
+
+	// Class variable to ensure the jumping stat is only updated once per jump 
+	bool bIsJumping = false; 
+
 
 public:
 	/** Returns CameraBoom subobject **/

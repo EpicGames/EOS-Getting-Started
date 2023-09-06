@@ -10,6 +10,7 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "EOSPlayerController.h"
+#include "EOSPlayerState.h"
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -85,8 +86,9 @@ void AEOS_OSS_TutorialCharacter::SetupPlayerInputComponent(class UInputComponent
 		//Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AEOS_OSS_TutorialCharacter::Look);
 
+		// Tutorial 7 - setting up inputs for ending the game and saving to Player Data Storage. Exit Game
+		EnhancedInputComponent->BindAction(QuitAction, ETriggerEvent::Triggered, this, &AEOS_OSS_TutorialCharacter::Quit); 
 	}
-
 }
 
 void AEOS_OSS_TutorialCharacter::Move(const FInputActionValue& Value)
@@ -125,6 +127,39 @@ void AEOS_OSS_TutorialCharacter::Look(const FInputActionValue& Value)
 	}
 }
 
+void AEOS_OSS_TutorialCharacter::Jump()
+{
+	// Call base class function
+	Super::Jump();
+
+	AEOSPlayerState* PS = Cast<AEOSPlayerState>(GetPlayerState()); // Need to get the player state and cast to our custom player state to access our UpdateStat function
+
+	// Only update if PS is valid AND only once per jump.
+	if (PS && !bIsJumping)
+	{
+		PS->UpdateStat("NUMBEROFJUMPS", 1); // Stat name hardcoded
+	}
+
+	bIsJumping = true;
+}
+
+void AEOS_OSS_TutorialCharacter::StopJumping()
+{
+	// Call base class function to stop jumping 
+	Super::StopJumping(); 
+
+	// set this to false
+	bIsJumping = false; 
+}
+
+void AEOS_OSS_TutorialCharacter::Quit()
+{
+	// Called when the escape key is pressed - will save game and quit (quit happens in player controller)
+	if (AEOSPlayerController* PlayerController = Cast<AEOSPlayerController>(Controller))
+	{
+		PlayerController->SaveGame();
+	}
+}
 
 
 

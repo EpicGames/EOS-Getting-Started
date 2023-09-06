@@ -28,7 +28,7 @@ Learn more about the requirements and how to use the C# code in the [readme file
 
 ## Unreal Engine Online Subsystem (OSS) code
 
-This is the code of an Unreal Engine project built using the Third Person feature pack. The project shows how to integrate our [Epic Online Services Online Subsystem plugin.](https://docs.unrealengine.com/5.1/en-US/online-subsystem-eos-plugin-in-unreal-engine/) in a game. This code accompanies this course: [The EOS Online Subsystem (OSS) Plugin](https://dev.epicgames.com/community/learning/courses/1px/unreal-engine-online-services-the-eos-online-subsystem-oss-plugin/Lnjn/unreal-engine-online-services-introduction)  The table below lists the module entries in this course. Unlike the Csharp code, the UE code isn't structured per tutorial, but instead structured in a way it could be done in a real game. **The code currently is up to module 4 - Joining EOS Session** 
+This is the code of an Unreal Engine project built using the Third Person feature pack. The project shows how to integrate our [Epic Online Services Online Subsystem plugin.](https://docs.unrealengine.com/5.1/en-US/online-subsystem-eos-plugin-in-unreal-engine/) in a game. This code accompanies this course: [The EOS Online Subsystem (OSS) Plugin](https://dev.epicgames.com/community/learning/courses/1px/unreal-engine-online-services-the-eos-online-subsystem-oss-plugin/Lnjn/unreal-engine-online-services-introduction)  The table below lists the module entries in this course. Unlike the Csharp code, the UE code isn't structured per tutorial, but instead structured in a way it could be done in a real game. **The code currently is up to module 7 - EOS P2P, Lobbies and Voice** 
 
 | Module | Release Date |
 | --- | --- |
@@ -36,11 +36,14 @@ This is the code of an Unreal Engine project built using the Third Person featur
 | Signing-in | Released|
 | Setting up a dedicated server to host EOS Sessions | Released |
 | Joining EOS Session | Released |
-| EOS Stats, Achievements and Leaderboards | TBD |
-| EOS Player and Title Data Storage | TBD |
-| EOS Voice | TBD |
-| Setting up Peer-to-Peer and EOS Lobbies | TBD |
-| Easy Anti-Cheat | TBD |
+| EOS Stats, Achievements and Leaderboards | Released |
+| EOS Player and Title Data Storage | Released |
+| EOS P2P, Lobbies and Voice | Released |
+| Voice on Trusted Server | Early 2024 |
+| Easy Anti-Cheat | Early 2024 |
+
+### Important Note
+If you are using EOS P2P, you should use Unreal Engine version 5.3 as it is bundled with EOS SDK 1.16. Or, you should upgrade the EOS SDK version in older version of UE, see [Upgrading the EOS SDK](https://docs.unrealengine.com/5.2/en-US/upgrading-the-eos-sdk-in-unreal-engine/). Older versions of the EOS SDK have this [WebRTC vulnerability](https://eoshelp.epicgames.com/s/news/eos-news-article-MCVDBTZSVM7VAJHF4ZGJVXZM52I4?language=en_US). 
 
 ## Issues
 

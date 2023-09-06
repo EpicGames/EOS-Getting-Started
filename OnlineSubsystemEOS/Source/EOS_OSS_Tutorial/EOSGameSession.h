@@ -36,10 +36,10 @@ protected:
 	// Hardcoding the session name for this tutorial. 
 	FName SessionName = "SessionName"; 
 
-	// Hardcoding the max number of players in a session 
+	// Hardcoding the max number of players in a session. 
 	const int MaxNumberOfPlayersInSession = 2;
 
-	// Variable to keep track of the number of players in a session  
+	// Variable to keep track of the number of players in a session.  
 	int NumberOfPlayersInSession;
 
 	// Function to create an EOS session. 
