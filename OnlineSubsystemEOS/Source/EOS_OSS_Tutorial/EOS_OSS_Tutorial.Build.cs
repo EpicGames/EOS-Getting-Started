@@ -9,6 +9,7 @@ public class EOS_OSS_Tutorial : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "HeadMountedDisplay", "EnhancedInput", "OnlineSubsystem", "OnlineSubsystemUtils", "OnlineSubsystemEOS" });
+		bEnableExceptions = true;
 
         // Tutorial 7: This will set the game to be in P2P mode instead of dedicated server.
         PrivateDefinitions.Add("P2PMODE=0");
