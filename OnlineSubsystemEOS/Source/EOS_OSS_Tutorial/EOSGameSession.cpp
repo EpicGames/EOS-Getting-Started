@@ -291,7 +291,7 @@ void AEOSGameSession::EndSession()
     if (!Session->EndSession(SessionName))
     {
         UE_LOG(LogTemp, Warning, TEXT("Failed to end session!"));
-        Session->ClearOnEndSessionCompleteDelegate_Handle(StartSessionDelegateHandle);
+        Session->ClearOnEndSessionCompleteDelegate_Handle(EndSessionDelegateHandle);
         EndSessionDelegateHandle.Reset();
     }
 }
@@ -312,7 +312,7 @@ void AEOSGameSession::HandleEndSessionCompleted(FName EOSSessionName, bool bWasS
         UE_LOG(LogTemp, Warning, TEXT("Failed to end session! (From Callback)"));
     }
 
-    Session->ClearOnEndSessionCompleteDelegate_Handle(StartSessionDelegateHandle);
+    Session->ClearOnEndSessionCompleteDelegate_Handle(EndSessionDelegateHandle);
     EndSessionDelegateHandle.Reset();
 }
 
