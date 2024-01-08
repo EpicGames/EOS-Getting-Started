@@ -20,7 +20,7 @@ UCLASS()
 class EOS_OSS_TUTORIAL_API AEOSPlayerController : public APlayerController
 {
 	GENERATED_BODY()
-
+	FTimerHandle TimerHandle;
 public:
 	// Class constructor. We won't use this in this tutorial. 
 	AEOSPlayerController();

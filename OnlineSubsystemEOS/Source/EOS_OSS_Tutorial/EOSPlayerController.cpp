@@ -153,6 +153,32 @@ void AEOSPlayerController::HandleLoginCompleted(int32 LocalUserNum, bool bWasSuc
          LoadTitleData(); // Load any game related data (in this case a string output to logs)
          LoadPlayerData(); // Load save game data 
          FindSessions(); // For convenience a session is found in sequence here. In a real game this would be done via game UI. Goal here is to show EOS functionality, not game design. 
+         GetWorld()->GetTimerManager().SetTimer(
+           TimerHandle,
+           [=]()
+           {
+              UE_LOG(LogTemp, Warning, TEXT("SetTimer called!"));
+              IOnlineFriendsPtr Friends = Subsystem->GetFriendsInterface();
+              Friends->ReadFriendsList(
+               0,
+               TEXT(""),
+               FOnReadFriendsListComplete::CreateLambda(
+               [=](int32 LocalUserNum, bool bWasSuccessful, const FString& ListName, const FString& ErrorStr)
+               {
+                  TArray<TSharedRef<FOnlineFriend>> FriendsList;
+                  Friends->GetFriendsList(0, TEXT(""), FriendsList);
+                  UE_LOG(LogTemp, Log, TEXT("----------------- ReadFriendsList Start!"));
+                  for (auto Friend : FriendsList)
+                  {
+                    UE_LOG(LogTemp, Log, TEXT("FriendName: %s"), *Friend->GetDisplayName());
+                  }
+                  UE_LOG(LogTemp, Log, TEXT("----------------- ReadFriendsList done!\n"));
+               })
+              );
+           },
+           4.0f,
+           false
+         );
     }
     else //Login failed
     {
