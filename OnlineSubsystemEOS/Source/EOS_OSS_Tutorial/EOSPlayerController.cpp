@@ -17,7 +17,7 @@
 
 AEOSPlayerController::AEOSPlayerController()
 {
-    // Tutorial 2: Including constructor here for clarity. Nothing added in derived class for this tutorial. 
+    // Tutorial 2: Including constructor here for clarity. Nothing added in derived class for this tutorial.
 }
 
 void AEOSPlayerController::BeginPlay()
@@ -320,7 +320,7 @@ void AEOSPlayerController::HandleJoinSessionCompleted(FName SessionName, EOnJoin
             // For the purposes of this tutorial overriding the ConnectString to point to localhost as we are testing locally. In a real game no need to override. Make sure you can connect over UDP to the ip:port of your server!
             ConnectString = "127.0.0.1:7777";  
             FURL DedicatedServerURL(nullptr, *ConnectString, TRAVEL_Absolute);
-            FString DedicatedServerJoinError; 
+            FString DedicatedServerJoinError;
             auto DedicatedServerJoinStatus = GEngine->Browse(GEngine->GetWorldContextFromWorldChecked(GetWorld()), DedicatedServerURL, DedicatedServerJoinError); 
             if (DedicatedServerJoinStatus == EBrowseReturnVal::Failure)
             {
@@ -328,6 +328,7 @@ void AEOSPlayerController::HandleJoinSessionCompleted(FName SessionName, EOnJoin
             }
 
             // To be thorough here you should modify your derived UGameInstance to handle the NetworkError and TravelError events. 
+            // This should also be done to handle the error "FULL" returned by the server. 
             // As we are testing locally, and for the purposes of keeping this tutorial simple, this is omitted. 
         }
     }

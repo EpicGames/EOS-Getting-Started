@@ -14,13 +14,28 @@
 
 AEOSGameSession::AEOSGameSession()
 {
-    // Tutorial 3: Including constructor here for clarity. Nothing added in derived class for this tutorial. 
+    // Tutorial 3: Including constructor here for clarity. Nothing added in derived class for this tutorial.
 }
 
 bool AEOSGameSession::ProcessAutoLogin()
 {
     // Tutorial 3: Overide base function as players need to login before joining the session. We don't want to call AutoLogin on server.
     return true;
+}
+
+FString AEOSGameSession::ApproveLogin(const FString& Options)
+{
+    if (IsRunningDedicatedServer())
+    {
+        // If the server is full return an error. Catching the error on the client is NOT implemented in this sample. 
+        // See UCommonSessionSubsystem::Initialize in the Lyra project for an example. 
+        Super::ApproveLogin(Options);
+        return NumberOfPlayersInSession == MaxNumberOfPlayersInSession ? "FULL" : "";
+    }
+    else
+    {
+        return "";
+    }
 }
 
 
@@ -46,8 +61,10 @@ void AEOSGameSession::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void AEOSGameSession::PostLogin(APlayerController* NewPlayer)
 {
     Super::PostLogin(NewPlayer);
-
-    // Tutorial 3: Add code here if you need to do anything after a player joins the dedicated server - not used in this tutorial. 
+    NumberOfPlayersInSession++; // Keep track of players registered in session 
+    
+    // Tutorial 3: Add code here if you need to do anything else after a player joins the dedicated server
+   
 }
 
 void AEOSGameSession::NotifyLogout(const APlayerController* ExitingPlayer)
@@ -58,13 +75,25 @@ void AEOSGameSession::NotifyLogout(const APlayerController* ExitingPlayer)
     // When players leave the dedicated server we need to check how many players are left. If 0 players are left, session is destroyed.  
     if (IsRunningDedicatedServer())
     {
-        UnregisterPlayer(ExitingPlayer); 
         NumberOfPlayersInSession--; // Keep track of players as they leave
-        // No one left in session. End session. end regardless if UnregisterPlayer failed. 
+        
+        // No one left in server - end session if session is InProgress
         if (NumberOfPlayersInSession==0)
         {
-            EndSession(); 
+            IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+            IOnlineSessionPtr Session = Subsystem->GetSessionInterface();
+
+            Session->GetSessionState(SessionName); 
+            if (Session->GetSessionState(SessionName) == EOnlineSessionState::InProgress)
+            {
+                EndSession();
+            }        
         }
+    }
+    else
+    {
+        // This isn't "handling" the error when the server is full, just a log to help keep track of the flow. 
+        UE_LOG(LogTemp, Log, TEXT("Player is leaving the dedicated server. This may be a kick because the server is full if the player didn't leave intentionally."))
     }
 }
 
@@ -80,6 +109,7 @@ void AEOSGameSession::CreateSession(FName KeyName, FString KeyValue) // Dedicate
         Session->AddOnCreateSessionCompleteDelegate_Handle(FOnCreateSessionCompleteDelegate::CreateUObject(
             this,
             &ThisClass::HandleCreateSessionCompleted));
+
 
     // Set session settings 
     TSharedRef<FOnlineSessionSettings> SessionSettings = MakeShared<FOnlineSessionSettings>();
@@ -165,7 +195,6 @@ void AEOSGameSession::HandleRegisterPlayerCompleted(FName EOSSessionName, const 
     if (bWasSuccesful)
     {
         UE_LOG(LogTemp, Log, TEXT("Player registered in EOS Session!"));
-        NumberOfPlayersInSession++; // Keep track of players registered in session 
         if (NumberOfPlayersInSession == MaxNumberOfPlayersInSession)
         {
             StartSession(); // Start the session when we've reached the max number of players 
@@ -320,7 +349,7 @@ void AEOSGameSession::HandleEndSessionCompleted(FName EOSSessionName, bool bWasS
 
 void AEOSGameSession::DestroySession()
 {
-    // Tutorial 3: This function is called when all players leave the dedicated server. It will destroy the EOS Session which will remove it from the EOS backend.  
+    // Tutorial 3: Called when EndPlay() is called. This will destroy the EOS Session which will remove it from the EOS backend.  
 
     IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
     IOnlineSessionPtr Session = Subsystem->GetSessionInterface();

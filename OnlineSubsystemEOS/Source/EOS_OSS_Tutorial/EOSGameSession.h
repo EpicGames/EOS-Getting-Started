@@ -27,6 +27,9 @@ protected:
 	// This function exists on the base class AGameSession. We want to override it so we don't try to login from a dedicated server. 
 	virtual bool ProcessAutoLogin();
 
+	// This function will be used to check if our session is full . It's better to check when a player joins rather than seeing if RegisterPlayer fails as it is async. 
+	virtual FString ApproveLogin(const FString& Options);
+
 	// Function called when players join dedicated server. Not used in this tutorial. 
 	virtual void PostLogin(APlayerController* NewPlayer);
 
