@@ -39,8 +39,8 @@ This is the code of an Unreal Engine project built using the Third Person featur
 | EOS Stats, Achievements and Leaderboards | Released |
 | EOS Player and Title Data Storage | Released |
 | EOS P2P, Lobbies and Voice | Released |
-| Voice on Trusted Server | Early 2024 |
-| Easy Anti-Cheat | Early 2024 |
+| Voice on Trusted Server | TBD |
+| Easy Anti-Cheat | TBD |
 
 ### Important Note
 If you are using EOS P2P, you should use Unreal Engine version 5.3 as it is bundled with EOS SDK 1.16. Or, you should upgrade the EOS SDK version in older version of UE, see [Upgrading the EOS SDK](https://docs.unrealengine.com/5.2/en-US/upgrading-the-eos-sdk-in-unreal-engine/). Older versions of the EOS SDK have this [WebRTC vulnerability](https://eoshelp.epicgames.com/s/news/eos-news-article-MCVDBTZSVM7VAJHF4ZGJVXZM52I4?language=en_US). 
