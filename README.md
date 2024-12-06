@@ -59,7 +59,11 @@ The code in this repository is distributed under the terms of the MIT License. S
 
 ## Code of Conduct
 
-This project adheres to the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
+We are committed to providing a friendly, safe, and welcoming environment for all contributors. Please be respectful, considerate, and inclusive when interacting with others. Harassment and discrimination of any kind will not be tolerated.
+
+By participating in this project, you agree to follow the community guidelines, respect others, and help maintain a welcoming environment for everyone.
+
+If you encounter any issues or have concerns, please report them to the project maintainers.
 
 Resources:
 
