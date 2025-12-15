@@ -1,0 +1,237 @@
+{
+	"folders": [
+		{
+			"name": "AINavigation/AINavigation",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseAINavigation\\Source\\AINavigation\\Verse"
+		},
+		{
+			"name": "EntityFramework/Component",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\EntityFramework\\Source\\Component\\Verse"
+		},
+		{
+			"name": "EntityFramework/ComponentTestSuite",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\EntityFramework\\Source\\ComponentTestSuite\\Verse"
+		},
+		{
+			"name": "EntityFramework/Entity",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\EntityFramework\\Source\\Entity\\Verse"
+		},
+		{
+			"name": "EntityFramework/EntityLevel",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\EntityFramework\\Source\\EntityLevel\\Verse"
+		},
+		{
+			"name": "EntityFramework/EntityRegistry",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\EntityFramework\\Source\\EntityRegistry\\Verse"
+		},
+		{
+			"name": "EntityFramework/EntityRegistryTestSuite",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\EntityFramework\\Source\\EntityRegistryTestSuite\\Verse"
+		},
+		{
+			"name": "EntityFramework/EntitySimulation",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\EntityFramework\\Source\\EntitySimulation\\Verse"
+		},
+		{
+			"name": "EntityFramework/EntitySkeletalAnimation",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\EntityFramework\\Source\\EntitySkeletalAnimation\\Verse"
+		},
+		{
+			"name": "EntityFramework/EntityStreaming",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\EntityFramework\\Source\\EntityStreaming\\Verse"
+		},
+		{
+			"name": "EntityFramework/EntityTestSuite",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\EntityFramework\\Source\\EntityTestSuite\\Verse"
+		},
+		{
+			"name": "EntityFramework/Execution",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\EntityFramework\\Source\\Execution\\Verse"
+		},
+		{
+			"name": "EntityFramework/ExecutionTestSuite",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\EntityFramework\\Source\\ExecutionTestSuite\\Verse"
+		},
+		{
+			"name": "EntityFramework/RigidPhysicsCore",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\EntityFramework\\Source\\RigidPhysicsCore\\Verse"
+		},
+		{
+			"name": "EpicGamesEngine/EpicGamesAssets",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\EpicGamesEngine\\Source\\EpicGamesAssets\\Verse"
+		},
+		{
+			"name": "EpicGamesEngineEditor/EpicGamesEngineEditor",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\EpicGamesEngineEditor\\Source\\EpicGamesEngineEditor\\Verse"
+		},
+		{
+			"name": "EpicGamesEngineRestricted/EpicGamesEngineRestricted",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\EpicGamesEngineRestricted\\Source\\EpicGamesEngineRestricted\\Verse"
+		},
+		{
+			"name": "EpicGamesTemporary/EpicGamesTemporary",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\EpicGamesTemporary\\Source\\EpicGamesTemporary\\Verse"
+		},
+		{
+			"name": "ModularVehicle/VehicleComponent",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\ModularVehicle\\Source\\VehicleComponent\\Verse"
+		},
+		{
+			"name": "Solaris/VerseNative",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Solaris\\Source\\VerseNative\\Verse"
+		},
+		{
+			"name": "Solaris/VersePredicts",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Solaris\\Source\\VersePredicts\\Verse"
+		},
+		{
+			"name": "UnrealEngineExperimental/UnrealEngineExperimental",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\UnrealEngineExperimental\\Source\\UnrealEngineExperimental\\Verse"
+		},
+		{
+			"name": "Verse/Verse",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\Verse\\Source\\Verse\\Verse"
+		},
+		{
+			"name": "VerseAbilities/VerseAbilities",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseAbilities\\Source\\VerseAbilities\\Verse"
+		},
+		{
+			"name": "VerseAutomatedTestingUtils/NexusUtils",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseAutomatedTestingUtils\\Source\\NexusUtils\\Verse"
+		},
+		{
+			"name": "VerseCamera/VerseCamera",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseCamera\\Source\\Verse"
+		},
+		{
+			"name": "VerseColors/VerseColors",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseColors\\Source\\VerseColors\\Verse"
+		},
+		{
+			"name": "VerseEngine/VerseAssets",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseEngine\\Source\\VerseAssets\\Verse"
+		},
+		{
+			"name": "VerseEngine/VerseEngine",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseEngine\\Source\\VerseEngine\\Verse"
+		},
+		{
+			"name": "VerseEngineAssets/VerseEngineAssets",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseEngineAssets\\Source\\VerseEngineAssets\\Verse"
+		},
+		{
+			"name": "VerseExperimental/VerseExperimental",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseExperimental\\Source\\VerseExperimental\\Verse"
+		},
+		{
+			"name": "VerseGeoScript/VerseGeoScript",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseGeoScript\\Source\\VerseGeoScript\\Verse"
+		},
+		{
+			"name": "VerseInput/VerseInput",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseInput\\Source\\VerseInput\\Verse"
+		},
+		{
+			"name": "VerseJSON/VerseJSON",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseJSON\\Source\\VerseJSON\\Verse"
+		},
+		{
+			"name": "VerseLeaderboards/VerseLeaderboards",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseLeaderboards\\Source\\Verse"
+		},
+		{
+			"name": "VerseModifier/VerseModifier",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseModifier\\Source\\VerseModifier\\Verse"
+		},
+		{
+			"name": "VersePCG/VersePCG",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VersePCG\\Source\\VersePCG\\Verse"
+		},
+		{
+			"name": "VersePresentation/VersePresentation",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VersePresentation\\Source\\VersePresentation\\Verse"
+		},
+		{
+			"name": "VersePrint/VersePrint",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VersePrint\\Source\\VersePrint\\Verse"
+		},
+		{
+			"name": "VerseRestricted/VerseRestricted",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseRestricted\\Source\\VerseRestricted\\Verse"
+		},
+		{
+			"name": "VerseSimulation/VerseSimulation",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseSimulation\\Source\\VerseSimulation\\Verse"
+		},
+		{
+			"name": "VerseSimulationMetadata/VerseSimulationMetadata",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseSimulationMetadata\\Source\\VerseSimulationMetadata\\Verse"
+		},
+		{
+			"name": "VerseSpatialMath/VerseSpatialMath",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseSpatialMath\\Source\\VerseSpatialMath\\Verse"
+		},
+		{
+			"name": "VerseTags/VerseTags",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseTags\\Source\\VerseTags\\Verse"
+		},
+		{
+			"name": "VerseTags/VerseTagsTestSuite",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseTags\\Source\\VerseTagsTestSuite\\Verse"
+		},
+		{
+			"name": "VerseTargetableComponent/VerseTargetableComponent",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\VerseTargetableComponent\\Source\\VerseTargetableComponent\\Verse"
+		},
+		{
+			"name": "VerseTypeEditor/VerseTypeEditorRuntime",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseTypeEditor\\Source\\VerseTypeEditorRuntime\\Verse"
+		},
+		{
+			"name": "VerseUI/VerseUI",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseUI\\Source\\VerseUI\\Verse"
+		},
+		{
+			"name": "VerseUI/VerseUISceneGraph",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseUI\\Source\\VerseUISceneGraph\\Verse"
+		},
+		{
+			"name": "VerseUI/VerseUIUE",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseUI\\Source\\VerseUIUE\\Verse"
+		},
+		{
+			"name": "VerseWebAPI/VerseWebAPI",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseWebAPI\\Source\\VerseWebAPI\\Verse"
+		},
+		{
+			"name": "VerseWorldPartition/VerseWorldPartition",
+			"path": "D:\\seb.bergeronraposo_perforce_UE5\\Engine\\Restricted\\NotForLicensees\\Plugins\\Verse\\VerseWorldPartition\\Source\\VerseWorldPartition\\Verse"
+		},
+		{
+			"name": "vproject",
+			"path": "D:\\EOS-Getting-Started\\OnlineSubsystemEOS\\Intermediate\\ProjectFiles\\Verse\\All"
+		}
+	],
+	"launch": 
+	{
+		"version": "0.2.0",
+		"configurations": [
+			{
+				"name": "Verse Debug",
+				"type": "verse",
+				"request": "attach",
+				"debugServer": 1961
+			}
+		]
+	},
+	"settings": 
+	{
+		"files.exclude": 
+		{
+			"**/*.uasset": "true",
+			"**/*.umap": "true",
+			"**/*.png": "true"
+		}
+	}
+}

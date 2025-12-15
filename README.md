@@ -49,6 +49,13 @@ If you're working with EOS P2P, make sure to use **Unreal Engine version 5.3**, 
 
 Older versions of the EOS SDK may be affected by a [WebRTC vulnerability](https://eoshelp.epicgames.com/s/news/eos-news-article-MCVDBTZSVM7VAJHF4ZGJVXZM52I4?language=en_US).
 
+## Epic Games Store Mobile
+This section contains the source code of an Unreal Engine project built using the **Third Person Feature Pack**. The project demonstrates how to integrate EOS for a game with in-app purchases to meet minimum requirements for our Epic Games Store Mobile. The code corresponds to the course: [Epic Games Store Mobile -  The Online Subsystem EOS Plugin](Link to Course).
+
+### Closed Beta
+The mobile Epic Games Store is currently in closed beta. We’re excited to launch our self-publishing tools in the near future
+Interested in joining our mobile store? Submit your game through our [Leads Intake form](https://e.acct.epicgames.com/click?EZWdzdG9yZS10ZWFtQGVwaWNnYW1lcy5jb20/CeyJtaWQiOiIxNzYzNTcxOTU3NDUzMTk2NTk2OGRjNzFiIiwiY3QiOiJlcGljLXR4LXByb2QtODI0ODA2ZmU0NDUwYjQ4ZTQ3MDVhODM3Y2Q4MzAwNGItMSIsInJkIjoiZXBpY2dhbWVzLmNvbSJ9/VaHR0cHM6Ly9mb3Jtcy51bnJlYWxlbmdpbmUuY29tL3MvZWdzLWxlYWQtaW50YWtlLWZvcm0/SWkhfYWNjdF9OTlRBTjExMTkyMDI1YzE4NjM3NjJiMQ/LYWUx/qP2xhbmd1YWdlPWVuX1VT/gaR35mw/JMTExOTIwMjVDMTg2Mzc2MkIx/s1v93de8f7c).  
+
 ## Reporting Issues
 
 If you encounter any issues with the code, please file an [issue](../../issues). We welcome contributions to improve this repository.
