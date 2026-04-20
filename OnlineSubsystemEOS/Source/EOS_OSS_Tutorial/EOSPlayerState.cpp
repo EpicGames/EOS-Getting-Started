@@ -6,6 +6,7 @@
 #include "OnlineSubsystemTypes.h"
 #include "Interfaces/OnlineStatsInterface.h"
 #include "Interfaces/OnlineAchievementsInterface.h"
+#include "Interfaces/OnlineFriendsInterface.h"
 
 // All the code in here is for tutorial 5: Stats, Achievements and Leaderboards
 
@@ -80,8 +81,9 @@ void AEOSPlayerState::QueryLeaderboardGlobal(FName LeaderboardName)
 		return;
 	}
 
-	FOnlineLeaderboardReadRef GlobalLeaderboardReadRef = MakeShared<FOnlineLeaderboardRead, ESPMode::ThreadSafe>(); 
-	GlobalLeaderboardReadRef->LeaderboardName = FName(LeaderboardName);
+	FOnlineLeaderboardReadRef GlobalLeaderboardReadRef = MakeShared<FOnlineLeaderboardRead, ESPMode::ThreadSafe>();
+	// UE 5.8: FOnlineLeaderboardRead::LeaderboardName / SortedColumn are now FNameDeprecationWrapper (an FString-based wrapper). Assign an FString.
+	GlobalLeaderboardReadRef->LeaderboardName = LeaderboardName.ToString();
 	
 	// Create a delegate handle and pass in the function to execute once the leaderboard is fetch. 
 	// The function here is the same as with the friends leaderboard. 
@@ -100,40 +102,97 @@ void AEOSPlayerState::QueryLeaderboardGlobal(FName LeaderboardName)
 	}
 }
 
-// Make sure in your code you don't call this too early. The EOS OSS needs to populate friend list shortly after login. 
+// Make sure in your code you don't call this too early. The EOS OSS needs to populate friend list shortly after login.
 void AEOSPlayerState::QueryLeaderboardFriends(FString StatName, FName LeaderboardName)
 {
 	// This function will retrieve a friend leaderboard with specific columns and a sorted column.
-	// For this course we are using a single Stat. 
+	// For this course we are using a single Stat.
+	//
+	// UE 5.8 WORKAROUND: The obvious one-call path here would be IOnlineLeaderboards::ReadLeaderboardsForFriends().
+	// However, in the UE 5.8 EOS OSS plugin that implementation asserts/crashes:
+	//   Engine/Plugins/Online/OnlineSubsystemEOS/.../OnlineLeaderboardsEOS.cpp:327 calls
+	//       EOSSubsystem->UserManager->GetFriendsList(LocalUserNum, FString(), Friends);
+	//   passing an empty friends-list name. GetFriendsList() then calls
+	//       EFriendsLists::FromString(Type, TEXT("")) in OnlineFriendsInterface.h, which since 5.8
+	//       ends its fallthrough branch with checkNoEntry() -> Assertion failed crash.
+	// The fix upstream would be to pass EFriendsLists::ToString(EFriendsLists::Default) instead of
+	// FString(), but as of the ++Fortnite+Main CL we checked the bug is still present - so it has
+	// not yet been fixed in UE5-Main. Once a 5.8 hotfix or 5.9 ships that resolves it, this
+	// workaround can be replaced with a single ReadLeaderboardsForFriends() call again.
+	//
+	// Workaround: explicitly ReadFriendsList("default") first, then build the friend-id array and
+	// call the lower-level ReadLeaderboards() directly. This also makes the underlying flow more
+	// obvious for tutorial readers.
 
 	IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
 	IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface();
-	IOnlineLeaderboardsPtr Leaderboards = Subsystem->GetLeaderboardsInterface();
+	IOnlineFriendsPtr Friends = Subsystem->GetFriendsInterface();
 
-	// Check if player is logged in... 
+	// Check if player is logged in...
 	FUniqueNetIdPtr NetId = Identity->GetUniquePlayerId(0);
-	
+
 	if (!NetId || Identity->GetLoginStatus(*NetId) != ELoginStatus::LoggedIn)
 	{
 		return;
 	}
 
-	// Prepare arguments. Notice the column metadata is a stat and can be different than the sorted column
+	// Prepare arguments. Notice the column metadata is a stat and can be different than the sorted column.
+	// UE 5.8: FOnlineLeaderboardRead::LeaderboardName / SortedColumn are FNameDeprecationWrapper (FString-based); FColumnMetaData takes FString.
 	FOnlineLeaderboardReadRef FriendLeaderboardReadRef = MakeShared<FOnlineLeaderboardRead, ESPMode::ThreadSafe>();
-	FriendLeaderboardReadRef->LeaderboardName = FName(LeaderboardName);
-	FriendLeaderboardReadRef->ColumnMetadata.Add(FColumnMetaData(FName(StatName),EOnlineKeyValuePairDataType::Int32)); 
-	FriendLeaderboardReadRef->SortedColumn = FName(StatName);
+	FriendLeaderboardReadRef->LeaderboardName = LeaderboardName.ToString();
+	FriendLeaderboardReadRef->ColumnMetadata.Add(FColumnMetaData(StatName, EOnlineKeyValuePairDataType::Int32));
+	FriendLeaderboardReadRef->SortedColumn = StatName;
 
-	// Create a delegate handle and pass in the function to execute once the leaderboard is fetch. 
-	// The function here is the same as with the global leaderboard. 
+	// Step 1: Populate the local friends list. The list name must match one of EFriendsLists values
+	// (default / onlinePlayers / inGamePlayers / inGameAndSessionPlayers). We use Default here.
+	const FString DefaultList = EFriendsLists::ToString(EFriendsLists::Default);
+	Friends->ReadFriendsList(0, DefaultList, FOnReadFriendsListComplete::CreateUObject(
+		this,
+		&ThisClass::HandleReadFriendsListForLeaderboard,
+		FriendLeaderboardReadRef));
+}
+
+void AEOSPlayerState::HandleReadFriendsListForLeaderboard(int32 LocalUserNum, bool bWasSuccessful, const FString& ListName, const FString& ErrorStr, FOnlineLeaderboardReadRef LeaderboardReadRef)
+{
+	// Callback of the ReadFriendsList() call in QueryLeaderboardFriends. See the note there for why
+	// the tutorial manually resolves friend IDs instead of calling ReadLeaderboardsForFriends().
+
+	if (!bWasSuccessful)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Could not read friends list for leaderboard query: %s"), *ErrorStr);
+		return;
+	}
+
+	IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+	IOnlineFriendsPtr Friends = Subsystem->GetFriendsInterface();
+	IOnlineLeaderboardsPtr Leaderboards = Subsystem->GetLeaderboardsInterface();
+
+	// Step 2: Read the now-cached friends list and build an array of unique IDs.
+	TArray<TSharedRef<FOnlineFriend>> FriendsArray;
+	Friends->GetFriendsList(LocalUserNum, ListName, FriendsArray);
+
+	if (FriendsArray.Num() == 0)
+	{
+		UE_LOG(LogTemp, Log, TEXT("No friends in list - skipping friend leaderboard query."));
+		return;
+	}
+
+	TArray<FUniqueNetIdRef> FriendIds;
+	FriendIds.Reserve(FriendsArray.Num());
+	for (const TSharedRef<FOnlineFriend>& Friend : FriendsArray)
+	{
+		FriendIds.Add(Friend->GetUserId());
+	}
+
+	// Step 3: Bind the leaderboard-read callback and issue the explicit ReadLeaderboards() call.
+	// Same handler used for the global leaderboard path.
 	QueryLeaderboardDelegateHandle =
 		Leaderboards->AddOnLeaderboardReadCompleteDelegate_Handle(FOnLeaderboardReadCompleteDelegate::CreateUObject(
 			this,
 			&ThisClass::HandleQueryLeaderboarComplete,
-			FriendLeaderboardReadRef));
+			LeaderboardReadRef));
 
-	// Try to read the leaderboard. If it fails, log the error, clear and reset the delegate. 
-	if (!Leaderboards->ReadLeaderboardsForFriends(0, FriendLeaderboardReadRef))
+	if (!Leaderboards->ReadLeaderboards(FriendIds, LeaderboardReadRef))
 	{
 		UE_LOG(LogTemp, Error, TEXT("Failed to read friend leaderboard."));
 		Leaderboards->ClearOnLeaderboardReadCompleteDelegate_Handle(QueryLeaderboardDelegateHandle);

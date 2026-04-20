@@ -3,6 +3,7 @@
 
 #include "EOSGameSession.h"
 #include "EOSPlayerController.h"
+#include "GameFramework/PlayerState.h" // UE 5.8: APlayerState is no longer pulled in transitively; include explicitly to dereference ExitingPlayer->PlayerState.
 #include "OnlineSubsystem.h"
 #include "OnlineSubsystemUtils.h"
 #include "OnlineSubsystemTypes.h"
@@ -230,7 +231,8 @@ void AEOSGameSession::UnregisterPlayer(const APlayerController* ExitingPlayer)
                     this,
                     &ThisClass::HandleUnregisterPlayerCompleted));
 
-            if (!Session->UnregisterPlayer(SessionName, *ExitingPlayer->PlayerState->UniqueId))
+            // UE 5.0+: APlayerState::UniqueId is private - use the GetUniqueId() accessor, which returns const FUniqueNetIdRepl& (dereferenceable to FUniqueNetId).
+            if (!Session->UnregisterPlayer(SessionName, *ExitingPlayer->PlayerState->GetUniqueId()))
             {
                 UE_LOG(LogTemp, Warning, TEXT("Failed to Unregister Player!"));
                 Session->ClearOnUnregisterPlayersCompleteDelegate_Handle(UnregisterPlayerDelegateHandle);

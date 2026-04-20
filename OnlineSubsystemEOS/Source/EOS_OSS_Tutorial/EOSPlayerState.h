@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerState.h"
 #include "Interfaces/OnlineLeaderboardInterface.h"
+#include "Interfaces/OnlineFriendsInterface.h"
 #include "EOSPlayerState.generated.h"
 
 /**
@@ -33,8 +34,11 @@ protected:
 	virtual void BeginPlay();
 
 	// Delegate to bind callback event for when a leaderboard is retrieved. Same delgate used for global and friend leaderboards.
-	FDelegateHandle QueryLeaderboardDelegateHandle; 
+	FDelegateHandle QueryLeaderboardDelegateHandle;
 
 	// Callback function. This function will run when a global OR friend leaderboard is retrieved.
-	void  HandleQueryLeaderboarComplete(bool bWasSuccessful, FOnlineLeaderboardReadRef LeaderboardReadRef);	
+	void  HandleQueryLeaderboarComplete(bool bWasSuccessful, FOnlineLeaderboardReadRef LeaderboardReadRef);
+
+	// Callback fired after ReadFriendsList completes. Used by the friend-leaderboard workaround (see QueryLeaderboardFriends).
+	void HandleReadFriendsListForLeaderboard(int32 LocalUserNum, bool bWasSuccessful, const FString& ListName, const FString& ErrorStr, FOnlineLeaderboardReadRef LeaderboardReadRef);
 };

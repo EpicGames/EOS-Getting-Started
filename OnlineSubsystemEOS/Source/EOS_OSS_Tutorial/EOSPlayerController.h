@@ -122,8 +122,13 @@ protected:
 	// Function used to setup our listeners to lobby notification events - example on participant change only.
 	void SetupNotifications();
 
-	// Callback function. This function will run when a lobby participant joins / leaves.
-	void HandleParticipantChanged(FName EOSLobbyName, const FUniqueNetId& NetId, bool bJoined); 
+	// Tutorial 7: In UE 5.2+ the single participant-change delegate was split into separate join/leave delegates.
+	// Callback function. This function will run when a lobby participant joins.
+	void HandleParticipantJoined(FName EOSLobbyName, const FUniqueNetId& NetId);
+
+	// Callback function. This function will run when a lobby participant leaves. Leave reason indicates why
+	// (e.g. Left, Disconnected, Kicked, Closed) - logging is kept simple here to focus on the OSS flow.
+	void HandleParticipantLeft(FName EOSLobbyName, const FUniqueNetId& NetId, EOnSessionParticipantLeftReason LeaveReason);
 
 #endif
 };

@@ -86,8 +86,11 @@ void AEOS_OSS_TutorialCharacter::SetupPlayerInputComponent(class UInputComponent
 		//Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AEOS_OSS_TutorialCharacter::Look);
 
-		// Tutorial 7 - setting up inputs for ending the game and saving to Player Data Storage. Exit Game
-		EnhancedInputComponent->BindAction(QuitAction, ETriggerEvent::Triggered, this, &AEOS_OSS_TutorialCharacter::Quit); 
+		// Tutorial 7 - setting up inputs for ending the game and saving to Player Data Storage. Exit Game.
+		// Bind to Started (not Triggered) so Quit fires exactly once on key-down; a Boolean action with no
+		// explicit trigger reports Triggered every frame while held, which would kick off multiple concurrent
+		// WriteUserFile calls and make Player Data Storage reject all but the first.
+		EnhancedInputComponent->BindAction(QuitAction, ETriggerEvent::Started, this, &AEOS_OSS_TutorialCharacter::Quit);
 	}
 }
 
@@ -154,7 +157,7 @@ void AEOS_OSS_TutorialCharacter::StopJumping()
 
 void AEOS_OSS_TutorialCharacter::Quit()
 {
-	// Called when the escape key is pressed - will save game and quit (quit happens in player controller)
+	// Called when the escape key is pressed - will save game and quit (quit happens in player controller).
 	if (AEOSPlayerController* PlayerController = Cast<AEOSPlayerController>(Controller))
 	{
 		PlayerController->SaveGame();

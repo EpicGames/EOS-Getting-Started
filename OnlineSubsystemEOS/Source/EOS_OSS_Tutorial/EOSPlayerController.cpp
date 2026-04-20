@@ -5,6 +5,7 @@
 #include "OnlineSubsystem.h"
 #include "OnlineSubsystemUtils.h"
 #include "OnlineSubsystemTypes.h"
+#include "OnlineSessionSettings.h" // UE 5.8: FOnlineSessionSearchResult is only forward-declared by OnlineSessionInterface.h - include the full definition here.
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "Containers/Array.h"
 #include "Kismet/GameplayStatics.h"
@@ -682,26 +683,31 @@ void AEOSPlayerController::HandleCreateLobbyCompleted(FName EOSLobbyName, bool b
 
 void AEOSPlayerController::SetupNotifications()
 {
-    // Tutorial 7: EOS Lobbies are great as there are notifications sent for our backend when there are changes to lobbies (ex: Participant Joins/Leaves, lobby or lobby member data is updated, etc...) 
+    // Tutorial 7: EOS Lobbies are great as there are notifications sent for our backend when there are changes to lobbies (ex: Participant Joins/Leaves, lobby or lobby member data is updated, etc...)
     IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
     IOnlineSessionPtr Session = Subsystem->GetSessionInterface();
 
-    // In this tutorial we're only giving an example of a notification for when a participant joins/leaves the lobby. The approach is similar for other notifications. 
-    Session->AddOnSessionParticipantsChangeDelegate_Handle(FOnSessionParticipantsChangeDelegate::CreateUObject(
+    // In this tutorial we're only giving an example of a notification for when a participant joins/leaves the lobby. The approach is similar for other notifications.
+    // Note: As of UE 5.2 the legacy FOnSessionParticipantsChangeDelegate was split into two separate delegates
+    // (joined / left) and the leave event now carries an EOnSessionParticipantLeftReason. We bind both here.
+    Session->AddOnSessionParticipantJoinedDelegate_Handle(FOnSessionParticipantJoinedDelegate::CreateUObject(
         this,
-        &ThisClass::HandleParticipantChanged)); 
+        &ThisClass::HandleParticipantJoined));
+
+    Session->AddOnSessionParticipantLeftDelegate_Handle(FOnSessionParticipantLeftDelegate::CreateUObject(
+        this,
+        &ThisClass::HandleParticipantLeft));
 }
 
-void AEOSPlayerController::HandleParticipantChanged(FName EOSLobbyName, const FUniqueNetId& NetId, bool bJoined)
+void AEOSPlayerController::HandleParticipantJoined(FName EOSLobbyName, const FUniqueNetId& NetId)
 {
-    // Tutorial 7: Callback function called when participants join/leave. 
-    if (bJoined)
-    {
-        UE_LOG(LogTemp, Log, TEXT("A player has joined Lobby: %s"), *LobbyName.ToString()); 
-    }
-    else
-    {
-        UE_LOG(LogTemp, Log, TEXT("A player has left Lobby: %s"), *LobbyName.ToString());
-    }
+    // Tutorial 7: Callback function called when a participant joins.
+    UE_LOG(LogTemp, Log, TEXT("A player has joined Lobby: %s"), *LobbyName.ToString());
+}
+
+void AEOSPlayerController::HandleParticipantLeft(FName EOSLobbyName, const FUniqueNetId& NetId, EOnSessionParticipantLeftReason LeaveReason)
+{
+    // Tutorial 7: Callback function called when a participant leaves. LeaveReason tells us why (Left / Disconnected / Kicked / Closed).
+    UE_LOG(LogTemp, Log, TEXT("A player has left Lobby: %s"), *LobbyName.ToString());
 }
 #endif
