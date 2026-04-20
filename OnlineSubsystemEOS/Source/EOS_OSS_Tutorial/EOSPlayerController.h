@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
 #include "Interfaces/OnlineSessionInterface.h" //Don't like declaring this here but getting weird compiler error with EOnJoinSessionCompleteResult
+#include "OnlineSessionSettings.h"             // FOnlineSessionSearchResult - used by value in TOptional member below.
 #include "EOSPlayerController.generated.h"
 
 /** New log category for this tutorial. Bump verbosity with `log LogEOSOSSTutorial Verbose` (or VeryVerbose) to see success-path messages. */
@@ -15,9 +16,8 @@ DECLARE_LOG_CATEGORY_EXTERN(LogEOSOSSTutorial, Log, All);
  * Child class of APlayerController to hold EOS OSS code. 
  */
 
- //Need to forward declare classes used 
+ //Need to forward declare classes used
 class FOnlineSessionSearch;
-class FOnlineSessionSearchResult;
 
 UCLASS()
 class EOS_OSS_TUTORIAL_API AEOSPlayerController : public APlayerController
@@ -29,7 +29,7 @@ public:
 	AEOSPlayerController();
 
 	// Load the position of the character from Player Data Storage - Should use USaveGame.
-	void LoadGame(TArray<uint8> LoadData);
+	void LoadGame(const TArray<uint8>& LoadData);
 
 	// Save the position of the character to Player Data Storage - Should use USaveGame.
 	void SaveGame();
@@ -37,6 +37,10 @@ public:
 protected:
 	// Function called when play begins.
 	virtual void BeginPlay();
+
+	// Function called when play ends. Used to clear all async-OSS delegate handles so multicast lists
+	// in the OSS interfaces don't retain stale bindings after the controller is destroyed.
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	// Function to sign into EOS Game Services.
 	void Login();
@@ -59,8 +63,11 @@ protected:
 	// This is the connection string for the client to connect to the dedicated server.
 	FString ConnectString;
 
-	// This is used to store the session to join information from the search. You could pass it as a paramter to JoinSession() instead. 
-	FOnlineSessionSearchResult* SessionToJoin; 
+	// Stores a *copy* of the chosen search result from the find-sessions callback. It must be a value
+	// (not a pointer into the search-result array): the TSharedRef<FOnlineSessionSearch> that owns
+	// that array is released at the end of HandleFindSessionsCompleted, after which any pointer into
+	// its SearchResults would dangle.
+	TOptional<FOnlineSessionSearchResult> SessionToJoin;
 
 	// Function to join the EOS session. 
 	void JoinSession();
@@ -86,7 +93,9 @@ protected:
 	// Delegate to bind callback event for title file storga file read.
 	FDelegateHandle ReadTitleFileDelegateHandle;
 
-	// Function to write to player data storage - called when player quits and game is saved.
+	// Function to write to player data storage - called when player quits and game is saved. FileData is
+	// passed by value because IOnlineUserCloud::WriteUserFile takes it by non-const reference (the OSS
+	// may mutate the buffer during optional compression); giving it our own copy keeps the API clean.
 	void WritePlayerDataStorage(FString FileName, TArray<uint8> FileData);
 	
 	// Callback function. This function is ran when writing to player data storage completes.
@@ -116,11 +125,11 @@ protected:
 	// Function to create an EOS session. 
 	void CreateLobby(FName KeyName = "KeyName", FString KeyValue = "KeyValue");
 
-	// Callback function. This function will run when creating the session compeletes. 
-	void HandleCreateLobbyCompleted(FName LobbyName, bool bWasSuccessful);
+	// Callback function. This function will run when creating the session completes.
+	void HandleCreateLobbyCompleted(FName EOSLobbyName, bool bWasSuccessful);
 
 	// Delegate to bind callback event for session creation.
-	FDelegateHandle CreateLobbyDelegateHandle;  
+	FDelegateHandle CreateLobbyDelegateHandle;
 
 	// Function used to setup our listeners to lobby notification events - example on participant change only.
 	void SetupNotifications();
@@ -129,9 +138,15 @@ protected:
 	// Callback function. This function will run when a lobby participant joins.
 	void HandleParticipantJoined(FName EOSLobbyName, const FUniqueNetId& NetId);
 
+	// Delegate to bind callback event for participant joined.
+	FDelegateHandle ParticipantJoinedDelegateHandle;
+
 	// Callback function. This function will run when a lobby participant leaves. Leave reason indicates why
 	// (e.g. Left, Disconnected, Kicked, Closed) - logging is kept simple here to focus on the OSS flow.
 	void HandleParticipantLeft(FName EOSLobbyName, const FUniqueNetId& NetId, EOnSessionParticipantLeftReason LeaveReason);
+
+	// Delegate to bind callback event for participant left.
+	FDelegateHandle ParticipantLeftDelegateHandle;
 
 #endif
 };

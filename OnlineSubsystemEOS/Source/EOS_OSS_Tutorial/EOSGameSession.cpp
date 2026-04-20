@@ -28,10 +28,19 @@ FString AEOSGameSession::ApproveLogin(const FString& Options)
 {
     if (IsRunningDedicatedServer())
     {
+        // Let the base class veto the login first (banned, malformed options, etc.) and propagate that rejection.
+        const FString SuperResult = Super::ApproveLogin(Options);
+        if (!SuperResult.IsEmpty())
+        {
+            return SuperResult;
+        }
+
         // If the server is full return an error. Catching the error on the client is NOT implemented in this sample.
         // See UCommonSessionSubsystem::Initialize in the Lyra project for an example.
-        Super::ApproveLogin(Options);
-        return NumberOfPlayersInSession == MaxNumberOfPlayersInSession ? "FULL" : "";
+        //
+        // Note: NumberOfPlayersInSession is incremented in PostLogin (after approval), so under a concurrent-join
+        // burst two approvals could race past `== Max`. Using `>=` keeps the FULL gate closed in that edge case.
+        return NumberOfPlayersInSession >= MaxNumberOfPlayersInSession ? "FULL" : "";
     }
     else
     {
@@ -53,9 +62,14 @@ void AEOSGameSession::BeginPlay()
 
 void AEOSGameSession::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-    // Tutorial 3: Override base function to destroy session at end of play. This happens on both dedicated server and client.
+    // Tutorial 3: Override base function to destroy session at end of play. Only the dedicated server
+    // owns a session (clients join but don't create one here), so skip DestroySession on clients to
+    // avoid the spurious failure log that would otherwise fire on every clean client exit.
     Super::EndPlay(EndPlayReason);
-    DestroySession();
+    if (bSessionExists)
+    {
+        DestroySession();
+    }
 }
 
 void AEOSGameSession::PostLogin(APlayerController* NewPlayer)
@@ -71,7 +85,8 @@ void AEOSGameSession::NotifyLogout(const APlayerController* ExitingPlayer)
     // Tutorial 3: Override base function to handle players leaving EOS Session.
     Super::NotifyLogout(ExitingPlayer); // This calls UnregisterPlayer
 
-    // When players leave the dedicated server we need to check how many players are left. If 0 players are left, session is destroyed.
+    // When players leave the dedicated server we need to check how many players are left. If 0 players are left,
+    // the session is *ended* here (not destroyed - destruction happens in EndPlay).
     if (IsRunningDedicatedServer())
     {
         NumberOfPlayersInSession--; // Keep track of players as they leave
@@ -120,11 +135,11 @@ void AEOSGameSession::CreateSession(FName KeyName, FString KeyValue) // Dedicate
         // Set session settings.
         TSharedRef<FOnlineSessionSettings> SessionSettings = MakeShared<FOnlineSessionSettings>();
         SessionSettings->NumPublicConnections = MaxNumberOfPlayersInSession; // We will test our sessions with 2 players to keep things simple.
-        SessionSettings->bShouldAdvertise = true; // This creates a public match and will be searchable. This will set the session as joinable via presence.
-        SessionSettings->bUsesPresence = false;   // No presence on dedicated server. This requires a local user.
+        SessionSettings->bShouldAdvertise = true; // Creates a public match that is searchable by clients. Dedicated-server sessions are not presence-joinable - clients discover them via FindSessions.
+        SessionSettings->bUsesPresence = false;   // No presence on dedicated server - presence requires a local signed-in user.
         SessionSettings->bAllowJoinViaPresence = false; // Superset by bShouldAdvertise and will be true on the backend.
         SessionSettings->bAllowJoinViaPresenceFriendsOnly = false; // Superset by bShouldAdvertise and will be true on the backend.
-        SessionSettings->bAllowInvites = false;    // Allow inviting players into session. This requires presence and a local user.
+        SessionSettings->bAllowInvites = false;    // Invites disabled for this tutorial; enabling would require presence and a local user.
         SessionSettings->bAllowJoinInProgress = false; // Once the session is started, no one can join.
         SessionSettings->bIsDedicated = true; // Session created on dedicated server.
         SessionSettings->bUseLobbiesIfAvailable = false; // This is an EOS Session not an EOS Lobby as they aren't supported on Dedicated Servers.

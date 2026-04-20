@@ -34,21 +34,85 @@ void AEOSPlayerController::BeginPlay()
     }
 }
 
-void AEOSPlayerController::LoadGame(TArray<uint8> LoadData)
+void AEOSPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    // Clear every delegate handle this controller bound on the OSS interfaces. Without this the OSS
+    // multicast lists retain stale handles pointing at our (soon-to-be-GC'd) UObject. The
+    // CreateUObject bindings themselves are weak and will no-op, but letting them accumulate leaks
+    // slots and can confuse shutdown ordering.
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    if (Subsystem)
+    {
+        IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface();
+        if (Identity.IsValid())
+        {
+            Identity->ClearOnLoginCompleteDelegate_Handle(0, LoginDelegateHandle);
+            LoginDelegateHandle.Reset();
+        }
+
+        IOnlineSessionPtr Session = Subsystem->GetSessionInterface();
+        if (Session.IsValid())
+        {
+            Session->ClearOnFindSessionsCompleteDelegate_Handle(FindSessionsDelegateHandle);
+            FindSessionsDelegateHandle.Reset();
+            Session->ClearOnJoinSessionCompleteDelegate_Handle(JoinSessionDelegateHandle);
+            JoinSessionDelegateHandle.Reset();
+#if P2PMODE
+            Session->ClearOnCreateSessionCompleteDelegate_Handle(CreateLobbyDelegateHandle);
+            CreateLobbyDelegateHandle.Reset();
+            Session->ClearOnSessionParticipantJoinedDelegate_Handle(ParticipantJoinedDelegateHandle);
+            ParticipantJoinedDelegateHandle.Reset();
+            Session->ClearOnSessionParticipantLeftDelegate_Handle(ParticipantLeftDelegateHandle);
+            ParticipantLeftDelegateHandle.Reset();
+#endif
+        }
+
+        IOnlineTitleFilePtr TitleFile = Subsystem->GetTitleFileInterface();
+        if (TitleFile.IsValid())
+        {
+            TitleFile->ClearOnEnumerateFilesCompleteDelegate_Handle(EnumTitleFilesDelegateHandle);
+            EnumTitleFilesDelegateHandle.Reset();
+            TitleFile->ClearOnReadFileCompleteDelegate_Handle(ReadTitleFileDelegateHandle);
+            ReadTitleFileDelegateHandle.Reset();
+        }
+
+        IOnlineUserCloudPtr UserCloud = Subsystem->GetUserCloudInterface();
+        if (UserCloud.IsValid())
+        {
+            UserCloud->ClearOnWriteUserFileCompleteDelegate_Handle(WritePlayerDataStorageDelegateHandle);
+            WritePlayerDataStorageDelegateHandle.Reset();
+            UserCloud->ClearOnEnumerateUserFilesCompleteDelegate_Handle(EnumPlayerFilesDelegateHandle);
+            EnumPlayerFilesDelegateHandle.Reset();
+            UserCloud->ClearOnReadUserFileCompleteDelegate_Handle(ReadPlayerDataFileDelegateHandle);
+            ReadPlayerDataFileDelegateHandle.Reset();
+        }
+    }
+
+    Super::EndPlay(EndPlayReason);
+}
+
+void AEOSPlayerController::LoadGame(const TArray<uint8>& LoadData)
 {
     // Tutorial 6: This function is part of the Login() callback callstack. It is only called on clients. LoadData is the serialized data retrieved from the Player Data Storage backend.
-    // FVector is 12 bytes.
+    // FVector serializes to 24 bytes (three doubles).
     if (LoadData.Num() != 24)
     {
-        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::LoadGame] Invalid load data. Initial character pawn location should be 12 bytes (FVector). Falling back to default starting location."));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::LoadGame] Invalid load data. Serialized FVector should be 24 bytes. Falling back to default starting location."));
         return;
     }
 
-    // Deserialize the the FVector.
+    APawn* LocalPawn = GetPawn();
+    if (!LocalPawn)
+    {
+        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSPlayerController::LoadGame] Pawn not available yet - skipping position restore."));
+        return;
+    }
+
+    // Deserialize the FVector.
     FVector InitialPlayerLocation;
     FMemoryReader MemoryReader(LoadData);
     MemoryReader << InitialPlayerLocation;
-    GetPawn()->SetActorLocation(InitialPlayerLocation); // Set the initial location.
+    LocalPawn->SetActorLocation(InitialPlayerLocation); // Set the initial location.
 }
 
 void AEOSPlayerController::SaveGame()
@@ -57,7 +121,14 @@ void AEOSPlayerController::SaveGame()
     Tutorial 6: Called from the Quit() function in the character class. This is a "pseudo" save game function. The purpose here is to show how to use EOS Player Data Storage.
     This is not an example on how a game should be saved. You should use a derived USaveGame class and save all data that is needed for your game.
     */
-    FVector FinalPlayerLocation = GetPawn()->GetActorLocation();     // Get the character pawn location.
+    APawn* LocalPawn = GetPawn();
+    if (!LocalPawn)
+    {
+        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSPlayerController::SaveGame] Pawn not available - nothing to save."));
+        return;
+    }
+
+    FVector FinalPlayerLocation = LocalPawn->GetActorLocation();
 
     // Prepare our SaveData - serialize the FVector.
     TArray<uint8> SaveData;
@@ -253,10 +324,12 @@ void AEOSPlayerController::HandleFindSessionsCompleted(bool bWasSuccessful, TSha
                 }
                 */
 
-                // Ensure the connection string is resolvable and store the info in ConnectString and in SessionToJoin.
+                // Ensure the connection string is resolvable and store a *copy* of the result in SessionToJoin.
+                // Must be a value copy: the TSharedRef<FOnlineSessionSearch> that owns SearchResults is dropped
+                // when this callback returns, after which any pointer into its array would dangle.
                 if (Session->GetResolvedConnectString(SessionInSearchResult, NAME_GamePort, ConnectString))
                 {
-                    SessionToJoin = &SessionInSearchResult;
+                    SessionToJoin = SessionInSearchResult;
                 }
 
                 // For this course we will join the first session found automatically. Usually you would loop through all the sessions and determine which one is best to join.
@@ -286,6 +359,12 @@ void AEOSPlayerController::JoinSession()
 {
     // Tutorial 4: Join the session.
     // Tutorial 7: Same code is used to join the lobby - just some tweaks to the logging.
+    if (!SessionToJoin.IsSet())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::JoinSession] No session selected - HandleFindSessionsCompleted did not populate SessionToJoin."));
+        return;
+    }
+
     IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
     IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
 
@@ -295,12 +374,17 @@ void AEOSPlayerController::JoinSession()
             Session->AddOnJoinSessionCompleteDelegate_Handle(FOnJoinSessionCompleteDelegate::CreateUObject(
                 this,
                 &ThisClass::HandleJoinSessionCompleted));
+
+        // Local cache key the client uses to refer to the joined session. Match the host's name so
+        // future Session->Get/End/Destroy calls from this client line up.
 #if P2PMODE
+        const FName LocalSessionName = LobbyName;
         UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::JoinSession] Joining lobby."));
 #else
+        const FName LocalSessionName = TEXT("SessionName");
         UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::JoinSession] Joining session."));
 #endif
-        if (!Session->JoinSession(0, "SessionName", *SessionToJoin))
+        if (!Session->JoinSession(0, LocalSessionName, SessionToJoin.GetValue()))
         {
 #if P2PMODE
             UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::JoinSession] Join lobby call failed."));
@@ -324,23 +408,34 @@ void AEOSPlayerController::HandleJoinSessionCompleted(FName SessionName, EOnJoin
     if (Result == EOnJoinSessionCompleteResult::Success)
     {
         UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleJoinSessionCompleted] Joined lobby."));
+        // Bind lobby notifications BEFORE ClientTravel - travel tears down this controller on the
+        // client, so binding after the travel request would attach a dying `this` to the session.
+        SetupNotifications();
         ClientTravel(ConnectString, TRAVEL_Absolute);
-        SetupNotifications(); // Setup our listeners for lobby event notifications.
     }
 #else
     if (Result == EOnJoinSessionCompleteResult::Success)
     {
         UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleJoinSessionCompleted] Joined session."));
-        if (GEngine)
+        UWorld* World = GetWorld();
+        if (GEngine && World)
         {
             // For the purposes of this tutorial we override the ConnectString to point to localhost as we are testing locally. In a real game no need to override. Make sure you can connect over UDP to the ip:port of your server!
             ConnectString = "127.0.0.1:7777";
             FURL DedicatedServerURL(nullptr, *ConnectString, TRAVEL_Absolute);
             FString DedicatedServerJoinError;
-            auto DedicatedServerJoinStatus = GEngine->Browse(GEngine->GetWorldContextFromWorldChecked(GetWorld()), DedicatedServerURL, DedicatedServerJoinError);
-            if (DedicatedServerJoinStatus == EBrowseReturnVal::Failure)
+            FWorldContext* WorldContext = GEngine->GetWorldContextFromWorld(World); // Non-Checked variant - returns nullptr instead of asserting if no context.
+            if (WorldContext)
             {
-                UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleJoinSessionCompleted] Failed to browse for dedicated server: %s"), *DedicatedServerJoinError);
+                auto DedicatedServerJoinStatus = GEngine->Browse(*WorldContext, DedicatedServerURL, DedicatedServerJoinError);
+                if (DedicatedServerJoinStatus == EBrowseReturnVal::Failure)
+                {
+                    UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleJoinSessionCompleted] Failed to browse for dedicated server: %s"), *DedicatedServerJoinError);
+                }
+            }
+            else
+            {
+                UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleJoinSessionCompleted] No WorldContext for the current world - cannot browse to the dedicated server."));
             }
 
             // To be thorough here you should modify your derived UGameInstance to handle the NetworkError and TravelError events.
@@ -453,32 +548,19 @@ void AEOSPlayerController::HandleReadTitleFileCompleted(bool bWasSuccessfull, co
             TArray<uint8> FileContents; // We need an array to output the serialized title data storage file data.
             if (TitleFile->GetFileContents(FileName, FileContents))
             {
-                // Deserialize file and write to logs.
-                char* FileData;
-                try
-                {
-                    FileData = new char[FileContents.Num()];
-                }
-                catch (std::bad_alloc)
-                {
-                    UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleReadTitleFileCompleted] Unable to allocate memory for title storage data."));
+                // Copy into an owned, null-terminated ANSI buffer so we can interpret the bytes as a C-string.
+                // Using TArray here (instead of raw new[]/delete) keeps allocation lifetime RAII-managed
+                // and avoids the std::bad_alloc / delete[] pitfalls of the 5.1-era code.
+                TArray<ANSICHAR> FileData;
+                FileData.Append(reinterpret_cast<const ANSICHAR*>(FileContents.GetData()), FileContents.Num());
+                FileData.Add('\0');
 
-                    TitleFile->ClearOnReadFileCompleteDelegate_Handle(ReadTitleFileDelegateHandle);
-                    ReadTitleFileDelegateHandle.Reset();
-                    return;
-                }
-
+                const FString FileDataAsFString = ANSI_TO_TCHAR(FileData.GetData());
                 // Check file contents and hardcode log outputs to prevent log injection.
-                std::memcpy(FileData, FileContents.GetData(), FileContents.Num());
-                FString FileDataAsFString = ANSI_TO_TCHAR(FileData);
                 if (FileDataAsFString.Equals("Game data"))
                 {
                     UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleReadTitleFileCompleted] File contents are: Game data"));
                 }
-
-                // Clean up memory.
-                delete FileData;
-                FileData = nullptr;
             }
             else
             {
@@ -701,9 +783,9 @@ void AEOSPlayerController::CreateLobby(FName KeyName, FString KeyValue)
         SessionSettings->bUsesPresence = false;   // No presence on dedicated server. This requires a local user.
         SessionSettings->bAllowJoinViaPresence = false;
         SessionSettings->bAllowJoinViaPresenceFriendsOnly = false;
-        SessionSettings->bAllowInvites = false;    // Allow inviting players into session. This requires presence and a local user.
+        SessionSettings->bAllowInvites = false;    // Invites disabled for this tutorial; enabling would require presence and a local user.
         SessionSettings->bAllowJoinInProgress = false; // Once the session is started, no one can join.
-        SessionSettings->bIsDedicated = false; // Session created on dedicated server.
+        SessionSettings->bIsDedicated = false; // P2P lobby, not a dedicated-server session.
         SessionSettings->bUseLobbiesIfAvailable = true; // For P2P we will use a lobby instead of a session.
         SessionSettings->bUseLobbiesVoiceChatIfAvailable = true; // We will also enable voice.
         SessionSettings->bUsesStats = true; // Needed to keep track of player stats.
@@ -761,14 +843,18 @@ void AEOSPlayerController::SetupNotifications()
     {
         // In this tutorial we're only giving an example of a notification for when a participant joins/leaves the lobby. The approach is similar for other notifications.
         // Note: As of UE 5.2 the legacy FOnSessionParticipantsChangeDelegate was split into two separate delegates
-        // (joined / left) and the leave event now carries an EOnSessionParticipantLeftReason. We bind both here.
-        Session->AddOnSessionParticipantJoinedDelegate_Handle(FOnSessionParticipantJoinedDelegate::CreateUObject(
-            this,
-            &ThisClass::HandleParticipantJoined));
+        // (joined / left) and the leave event now carries an EOnSessionParticipantLeftReason.
+        // We bind both here and keep the returned handles as members so EndPlay can clear them - otherwise
+        // the OSS multicast lists would retain stale bindings after this controller is destroyed.
+        ParticipantJoinedDelegateHandle =
+            Session->AddOnSessionParticipantJoinedDelegate_Handle(FOnSessionParticipantJoinedDelegate::CreateUObject(
+                this,
+                &ThisClass::HandleParticipantJoined));
 
-        Session->AddOnSessionParticipantLeftDelegate_Handle(FOnSessionParticipantLeftDelegate::CreateUObject(
-            this,
-            &ThisClass::HandleParticipantLeft));
+        ParticipantLeftDelegateHandle =
+            Session->AddOnSessionParticipantLeftDelegate_Handle(FOnSessionParticipantLeftDelegate::CreateUObject(
+                this,
+                &ThisClass::HandleParticipantLeft));
     }
     else
     {
@@ -778,13 +864,14 @@ void AEOSPlayerController::SetupNotifications()
 
 void AEOSPlayerController::HandleParticipantJoined(FName EOSLobbyName, const FUniqueNetId& NetId)
 {
-    // Tutorial 7: Callback function called when a participant joins.
-    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleParticipantJoined] Player joined lobby %s."), *LobbyName.ToString());
+    // Tutorial 7: Callback function called when a participant joins. Log the lobby name reported by the
+    // callback rather than the local hardcoded member, so the message reflects what the OSS actually fired.
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleParticipantJoined] Player joined lobby %s."), *EOSLobbyName.ToString());
 }
 
 void AEOSPlayerController::HandleParticipantLeft(FName EOSLobbyName, const FUniqueNetId& NetId, EOnSessionParticipantLeftReason LeaveReason)
 {
     // Tutorial 7: Callback function called when a participant leaves. LeaveReason tells us why (Left / Disconnected / Kicked / Closed).
-    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleParticipantLeft] Player left lobby %s."), *LobbyName.ToString());
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleParticipantLeft] Player left lobby %s."), *EOSLobbyName.ToString());
 }
 #endif

@@ -91,7 +91,7 @@ void AEOSPlayerState::QueryLeaderboardGlobal(FName LeaderboardName)
 			QueryLeaderboardDelegateHandle =
 				Leaderboards->AddOnLeaderboardReadCompleteDelegate_Handle(FOnLeaderboardReadCompleteDelegate::CreateUObject(
 					this,
-					&ThisClass::HandleQueryLeaderboarComplete,
+					&ThisClass::HandleQueryLeaderboardComplete,
 					GlobalLeaderboardReadRef));
 
 			// Try to read the leaderboard. If it fails synchronously, log, clear and reset the delegate.
@@ -207,7 +207,7 @@ void AEOSPlayerState::HandleReadFriendsListForLeaderboard(int32 LocalUserNum, bo
 		QueryLeaderboardDelegateHandle =
 			Leaderboards->AddOnLeaderboardReadCompleteDelegate_Handle(FOnLeaderboardReadCompleteDelegate::CreateUObject(
 				this,
-				&ThisClass::HandleQueryLeaderboarComplete,
+				&ThisClass::HandleQueryLeaderboardComplete,
 				LeaderboardReadRef));
 
 		if (!Leaderboards->ReadLeaderboards(FriendIds, LeaderboardReadRef))
@@ -223,7 +223,7 @@ void AEOSPlayerState::HandleReadFriendsListForLeaderboard(int32 LocalUserNum, bo
 	}
 }
 
-void AEOSPlayerState::HandleQueryLeaderboarComplete(bool bWasSuccessful, FOnlineLeaderboardReadRef GlobalLeaderboardReadRef)
+void AEOSPlayerState::HandleQueryLeaderboardComplete(bool bWasSuccessful, FOnlineLeaderboardReadRef GlobalLeaderboardReadRef)
 {
 	// Function triggered when either global or friend leaderboard query completes.
 	IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
@@ -235,7 +235,11 @@ void AEOSPlayerState::HandleQueryLeaderboarComplete(bool bWasSuccessful, FOnline
 		// To keep things simple in this course, we are writing the data to the UE logs.
 		for (const auto& Row : GlobalLeaderboardReadRef->Rows)
 		{
-			UE_LOG(LogEOSOSSTutorial, VeryVerbose, TEXT("[AEOSPlayerState::HandleQueryLeaderboarComplete] Player Id: %s, Rank: %d"), *(*Row.PlayerId).ToString(), Row.Rank);
+			// Partial results from EOS can carry invalid PlayerId entries - guard before dereference.
+			if (Row.PlayerId.IsValid())
+			{
+				UE_LOG(LogEOSOSSTutorial, VeryVerbose, TEXT("[AEOSPlayerState::HandleQueryLeaderboardComplete] Player Id: %s, Rank: %d"), *Row.PlayerId->ToString(), Row.Rank);
+			}
 		}
 	}
 

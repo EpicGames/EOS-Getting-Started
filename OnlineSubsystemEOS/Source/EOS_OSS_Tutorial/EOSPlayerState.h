@@ -37,7 +37,7 @@ protected:
 	FDelegateHandle QueryLeaderboardDelegateHandle;
 
 	// Callback function. This function will run when a global OR friend leaderboard is retrieved.
-	void  HandleQueryLeaderboarComplete(bool bWasSuccessful, FOnlineLeaderboardReadRef LeaderboardReadRef);
+	void HandleQueryLeaderboardComplete(bool bWasSuccessful, FOnlineLeaderboardReadRef LeaderboardReadRef);
 
 	// Callback fired after ReadFriendsList completes. Used by the friend-leaderboard workaround (see QueryLeaderboardFriends).
 	void HandleReadFriendsListForLeaderboard(int32 LocalUserNum, bool bWasSuccessful, const FString& ListName, const FString& ErrorStr, FOnlineLeaderboardReadRef LeaderboardReadRef);

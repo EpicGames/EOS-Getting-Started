@@ -42,8 +42,8 @@ protected:
 	// Hardcoding the max number of players in a session. 
 	const int MaxNumberOfPlayersInSession = 2;
 
-	// Variable to keep track of the number of players in a session.  
-	int NumberOfPlayersInSession;
+	// Variable to keep track of the number of players in a session.
+	int NumberOfPlayersInSession = 0;
 
 	// Function to create an EOS session. 
 	void CreateSession(FName KeyName = "KeyName", FString KeyValue= "KeyValue");
