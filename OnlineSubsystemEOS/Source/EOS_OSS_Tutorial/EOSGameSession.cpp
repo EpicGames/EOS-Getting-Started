@@ -94,7 +94,7 @@ void AEOSGameSession::NotifyLogout(const APlayerController* ExitingPlayer)
     else
     {
         // This isn't "handling" the error when the server is full, just a log to help keep track of the flow. 
-        UE_LOG(LogTemp, Log, TEXT("Player is leaving the dedicated server. This may be a kick because the server is full if the player didn't leave intentionally."))
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::NotifyLogout] Player is leaving the dedicated server. This may be a kick because the server is full if the player didn't leave intentionally."))
     }
 }
 
@@ -130,11 +130,11 @@ void AEOSGameSession::CreateSession(FName KeyName, FString KeyValue) // Dedicate
     SessionSettings->Settings.Add(KeyName, FOnlineSessionSetting((KeyValue), EOnlineDataAdvertisementType::ViaOnlineService));
 
     // Create session.
-    UE_LOG(LogTemp, Log, TEXT("Creating session..."));
-    
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::CreateSession] Creating session..."));
+
     if (!Session->CreateSession(0, SessionName, *SessionSettings))
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to create session!"));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::CreateSession] CreateSession call failed."));
         Session->ClearOnCreateSessionCompleteDelegate_Handle(CreateSessionDelegateHandle);
         CreateSessionDelegateHandle.Reset();
     }
@@ -150,11 +150,11 @@ void AEOSGameSession::HandleCreateSessionCompleted(FName EOSSessionName, bool bW
     if (bWasSuccessful)
     {
         bSessionExists = true; 
-        UE_LOG(LogTemp, Log, TEXT("Session: %s Created!"), *EOSSessionName.ToString());
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::HandleCreateSessionCompleted] Session %s created."), *EOSSessionName.ToString());
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to create session!"));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::HandleCreateSessionCompleted] Failed to create session."));
     }
 
     // Clear our handle and reset the delegate. 
@@ -180,7 +180,7 @@ void AEOSGameSession::RegisterPlayer(APlayerController* NewPlayer, const FUnique
 
         if (!Session->RegisterPlayer(SessionName, *UniqueId, false))
         {
-            UE_LOG(LogTemp, Warning, TEXT("Failed to Register Player!"));
+            UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RegisterPlayer] RegisterPlayer call failed."));
             Session->ClearOnRegisterPlayersCompleteDelegate_Handle(RegisterPlayerDelegateHandle);
             RegisterPlayerDelegateHandle.Reset();
         }
@@ -195,7 +195,7 @@ void AEOSGameSession::HandleRegisterPlayerCompleted(FName EOSSessionName, const 
 
     if (bWasSuccesful)
     {
-        UE_LOG(LogTemp, Log, TEXT("Player registered in EOS Session!"));
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::HandleRegisterPlayerCompleted] Player registered in EOS session."));
         if (NumberOfPlayersInSession == MaxNumberOfPlayersInSession)
         {
             StartSession(); // Start the session when we've reached the max number of players 
@@ -203,7 +203,7 @@ void AEOSGameSession::HandleRegisterPlayerCompleted(FName EOSSessionName, const 
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to register player! (From Callback)"));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::HandleRegisterPlayerCompleted] Failed to register player (async)."));
     }
     
     // Clear and reset delegates
@@ -234,14 +234,14 @@ void AEOSGameSession::UnregisterPlayer(const APlayerController* ExitingPlayer)
             // UE 5.0+: APlayerState::UniqueId is private - use the GetUniqueId() accessor, which returns const FUniqueNetIdRepl& (dereferenceable to FUniqueNetId).
             if (!Session->UnregisterPlayer(SessionName, *ExitingPlayer->PlayerState->GetUniqueId()))
             {
-                UE_LOG(LogTemp, Warning, TEXT("Failed to Unregister Player!"));
+                UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::UnregisterPlayer] UnregisterPlayer call failed."));
                 Session->ClearOnUnregisterPlayersCompleteDelegate_Handle(UnregisterPlayerDelegateHandle);
                 UnregisterPlayerDelegateHandle.Reset();
             }
         }
         else
         {
-            UE_LOG(LogTemp, Warning, TEXT("Failed to Unregister Player!"));
+            UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSGameSession::UnregisterPlayer] ExitingPlayer->PlayerState is null - cannot unregister (player may have left ungracefully)."));
         }
 
     }
@@ -257,11 +257,11 @@ void AEOSGameSession::HandleUnregisterPlayerCompleted(FName EOSSessionName, cons
     // Just log, clear and reset delegate. 
     if (bWasSuccesful)
     {
-        UE_LOG(LogTemp, Log, TEXT("Player unregistered in EOS Session!"));
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::HandleUnregisterPlayerCompleted] Player unregistered from EOS session."));
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to unregister player! (From Callback)"));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::HandleUnregisterPlayerCompleted] Failed to unregister player (async)."));
     }
     Session->ClearOnUnregisterPlayersCompleteDelegate_Handle(UnregisterPlayerDelegateHandle);
     UnregisterPlayerDelegateHandle.Reset();
@@ -281,7 +281,7 @@ void AEOSGameSession::StartSession()
     
     if (!Session->StartSession(SessionName))
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to start session!"));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::StartSession] StartSession call failed."));
         Session->ClearOnStartSessionCompleteDelegate_Handle(StartSessionDelegateHandle);
         StartSessionDelegateHandle.Reset();
     }
@@ -296,11 +296,11 @@ void AEOSGameSession::HandleStartSessionCompleted(FName EOSSessionName, bool bWa
     // Just log, clear and reset delegate. 
     if (bWasSuccessful)
     {
-        UE_LOG(LogTemp, Log, TEXT("Session Started!"));
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::HandleStartSessionCompleted] Session started."));
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to start session! (From Callback)"));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::HandleStartSessionCompleted] Failed to start session (async)."));
     }
 
     Session->ClearOnStartSessionCompleteDelegate_Handle(StartSessionDelegateHandle);
@@ -321,7 +321,7 @@ void AEOSGameSession::EndSession()
 
     if (!Session->EndSession(SessionName))
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to end session!"));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::EndSession] EndSession call failed."));
         Session->ClearOnEndSessionCompleteDelegate_Handle(EndSessionDelegateHandle);
         EndSessionDelegateHandle.Reset();
     }
@@ -336,11 +336,11 @@ void AEOSGameSession::HandleEndSessionCompleted(FName EOSSessionName, bool bWasS
     // Just log, clear and reset delegate. 
     if (bWasSuccessful)
     {
-        UE_LOG(LogTemp, Log, TEXT("Session ended!"));
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::HandleEndSessionCompleted] Session ended."));
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to end session! (From Callback)"));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::HandleEndSessionCompleted] Failed to end session (async)."));
     }
 
     Session->ClearOnEndSessionCompleteDelegate_Handle(EndSessionDelegateHandle);
@@ -363,7 +363,7 @@ void AEOSGameSession::DestroySession()
 
     if (!Session->DestroySession(SessionName))
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to destroy session.")); // Log to the UE logs that we are trying to log in. 
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::DestroySession] DestroySession call failed."));
         Session->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionDelegateHandle);
         DestroySessionDelegateHandle.Reset();
     }
@@ -379,11 +379,11 @@ void AEOSGameSession::HandleDestroySessionCompleted(FName EOSSessionName, bool b
     if (bWasSuccesful)
     {
         bSessionExists = false; // Mark that the session doesn't exist. This way next time BeginPlay is called a new session will be created. 
-        UE_LOG(LogTemp, Log, TEXT("Destroyed session succesfully.")); 
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::HandleDestroySessionCompleted] Session destroyed."));
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to destroy session.")); 
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::HandleDestroySessionCompleted] Failed to destroy session (async)."));
     }
 
     Session->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionDelegateHandle);

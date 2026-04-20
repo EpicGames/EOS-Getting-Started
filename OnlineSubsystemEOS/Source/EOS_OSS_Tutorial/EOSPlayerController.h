@@ -7,6 +7,9 @@
 #include "Interfaces/OnlineSessionInterface.h" //Don't like declaring this here but getting weird compiler error with EOnJoinSessionCompleteResult
 #include "EOSPlayerController.generated.h"
 
+/** New log category for this tutorial. Bump verbosity with `log LogEOSOSSTutorial Verbose` (or VeryVerbose) to see success-path messages. */
+DECLARE_LOG_CATEGORY_EXTERN(LogEOSOSSTutorial, Log, All);
+
 
 /**
  * Child class of APlayerController to hold EOS OSS code. 

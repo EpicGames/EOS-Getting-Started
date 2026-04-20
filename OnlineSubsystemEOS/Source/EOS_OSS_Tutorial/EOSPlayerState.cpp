@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "EOSPlayerState.h"
+#include "EOSPlayerController.h" // For LogEOSOSSTutorial category
 #include "OnlineSubsystem.h"
 #include "OnlineSubsystemUtils.h"
 #include "OnlineSubsystemTypes.h"
@@ -54,7 +55,7 @@ void AEOSPlayerState::UpdateStat(FString StatName, int32 StatValue)
 				// Just log if the update failed. 
 				if (!UpdateResult.bSucceeded)
 				{
-					UE_LOG(LogTemp, Warning, TEXT("Error updating player statistics: %s"), *UpdateResult.ErrorCode);
+					UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::UpdateStat] Error updating player statistics: %s"), *UpdateResult.ErrorCode);
 					return;
 				}
 			}));
@@ -96,7 +97,7 @@ void AEOSPlayerState::QueryLeaderboardGlobal(FName LeaderboardName)
 	// Try to read the leaderboard. If it fails, log the error, clear and reset the delegate. 
 	if (!Leaderboards->ReadLeaderboardsAroundRank(0,10, GlobalLeaderboardReadRef))
 	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to read global leaderboard.")); 
+		UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::QueryLeaderboardGlobal] ReadLeaderboardsAroundRank call failed."));
 		Leaderboards->ClearOnLeaderboardReadCompleteDelegate_Handle(QueryLeaderboardDelegateHandle);
 		QueryLeaderboardDelegateHandle.Reset();
 	}
@@ -159,7 +160,7 @@ void AEOSPlayerState::HandleReadFriendsListForLeaderboard(int32 LocalUserNum, bo
 
 	if (!bWasSuccessful)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Could not read friends list for leaderboard query: %s"), *ErrorStr);
+		UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::HandleReadFriendsListForLeaderboard] Could not read friends list for leaderboard query: %s"), *ErrorStr);
 		return;
 	}
 
@@ -173,7 +174,7 @@ void AEOSPlayerState::HandleReadFriendsListForLeaderboard(int32 LocalUserNum, bo
 
 	if (FriendsArray.Num() == 0)
 	{
-		UE_LOG(LogTemp, Log, TEXT("No friends in list - skipping friend leaderboard query."));
+		UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerState::HandleReadFriendsListForLeaderboard] No friends in list - skipping friend leaderboard query."));
 		return;
 	}
 
@@ -194,7 +195,7 @@ void AEOSPlayerState::HandleReadFriendsListForLeaderboard(int32 LocalUserNum, bo
 
 	if (!Leaderboards->ReadLeaderboards(FriendIds, LeaderboardReadRef))
 	{
-		UE_LOG(LogTemp, Error, TEXT("Failed to read friend leaderboard."));
+		UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::HandleReadFriendsListForLeaderboard] ReadLeaderboards call failed."));
 		Leaderboards->ClearOnLeaderboardReadCompleteDelegate_Handle(QueryLeaderboardDelegateHandle);
 		QueryLeaderboardDelegateHandle.Reset();
 	}
@@ -212,7 +213,7 @@ void AEOSPlayerState::HandleQueryLeaderboarComplete(bool bWasSuccessful, FOnline
 		// To keep things simple in this course, we are writing the data to the UE logs. 
 		for ( auto Row : GlobalLeaderboardReadRef->Rows )
 		{
-			UE_LOG(LogTemp, Log, TEXT("Player Id: %s, Player Rank: %d"), *(*Row.PlayerId).ToString(), Row.Rank);
+			UE_LOG(LogEOSOSSTutorial, VeryVerbose, TEXT("[AEOSPlayerState::HandleQueryLeaderboarComplete] Player Id: %s, Rank: %d"), *(*Row.PlayerId).ToString(), Row.Rank);
 		}
 	}
 

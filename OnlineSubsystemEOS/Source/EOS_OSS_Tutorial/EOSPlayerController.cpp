@@ -15,6 +15,8 @@
 #include "Serialization/ArchiveLoadCompressedProxy.h"
 #include "EOS_OSS_TutorialGameMode.h"
 
+DEFINE_LOG_CATEGORY(LogEOSOSSTutorial);
+
 
 AEOSPlayerController::AEOSPlayerController()
 {
@@ -39,7 +41,7 @@ void AEOSPlayerController::LoadGame(TArray<uint8> LoadData)
     // FVector is 12 bytes. 
     if (LoadData.Num() != 24)
     {
-        UE_LOG(LogTemp, Error, TEXT("Invalid Load data. Initial character pawn location should be of 12 bytes. Default starting location will be used."));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::LoadGame] Invalid load data. Initial character pawn location should be 12 bytes (FVector). Falling back to default starting location."));
         return; 
     }
 
@@ -107,11 +109,11 @@ void AEOSPlayerController::Login()
         In most situations you will want to automatically log a player in using the parameters passed via CLI.
         For example, using the exchange code for the Epic Games Store.
         */
-        UE_LOG(LogTemp, Log, TEXT("Logging into EOS...")); // Log to the UE logs that we are trying to log in. 
-      
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::Login] Logging into EOS via AutoLogin (CLI AUTH_TYPE set)."));
+
         if (!Identity->AutoLogin(0))
         {
-            UE_LOG(LogTemp, Warning, TEXT("Failed to login... ")); // Log to the UE logs that failed to log in. 
+            UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Login] AutoLogin call failed."));
             // Clear our handle and reset the delegate.
             Identity->ClearOnLoginCompleteDelegate_Handle(0, LoginDelegateHandle);
             LoginDelegateHandle.Reset();
@@ -125,11 +127,11 @@ void AEOSPlayerController::Login()
         */
         FOnlineAccountCredentials Credentials("AccountPortal","", "");
 
-        UE_LOG(LogTemp, Log, TEXT("Logging into EOS...")); // Log to the UE logs that we are trying to log in. 
-        
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::Login] Logging into EOS via AccountPortal (no CLI AUTH_TYPE)."));
+
         if (!Identity->Login(0, Credentials))
         {
-            UE_LOG(LogTemp, Warning, TEXT("Failed to login... ")); // Log to the UE logs that we failed to log in. 
+            UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Login] Login call failed."));
 
             // Clear our handle and reset the delegate. 
             Identity->ClearOnLoginCompleteDelegate_Handle(0, LoginDelegateHandle);
@@ -148,8 +150,8 @@ void AEOSPlayerController::HandleLoginCompleted(int32 LocalUserNum, bool bWasSuc
     IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface();
     if (bWasSuccessful)
     {
-        UE_LOG(LogTemp, Log, TEXT("Login callback completed!"));
-        UE_LOG(LogTemp, Log, TEXT("Loading cloud data and searching for a session..."));
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleLoginCompleted] Login succeeded - Player %s"), *UserId.ToString());
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleLoginCompleted] Loading cloud data and searching for a session..."));
         
          LoadTitleData(); // Load any game related data (in this case a string output to logs)
          LoadPlayerData(); // Load save game data 
@@ -159,7 +161,7 @@ void AEOSPlayerController::HandleLoginCompleted(int32 LocalUserNum, bool bWasSuc
     {
         // If your game is online only, you may want to return an errror to the user and return to a menu that uses a different GameMode/PlayerController.
 
-        UE_LOG(LogTemp, Warning, TEXT("EOS login failed.")); //Print sign in failure in logs as a warning.
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleLoginCompleted] EOS login failed: %s"), *Error);
     }
 
     // Clear our handle and reset the delegate. 
@@ -189,17 +191,17 @@ void AEOSPlayerController::FindSessions(FName SearchKey, FString SearchValue) //
             &ThisClass::HandleFindSessionsCompleted,
             Search));
 #if P2PMODE
-    UE_LOG(LogTemp, Log, TEXT("Finding lobby."));
-#else 
-    UE_LOG(LogTemp, Log, TEXT("Finding session."));
-#endif 
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::FindSessions] Finding lobby."));
+#else
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::FindSessions] Finding session."));
+#endif
 
     if (!Session->FindSessions(0, Search))
     {
 #if P2PMODE
-        UE_LOG(LogTemp, Log, TEXT("Finding lobby failed."));
-#else 
-        UE_LOG(LogTemp, Warning, TEXT("Finding session failed."));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::FindSessions] Find lobby call failed."));
+#else
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::FindSessions] Find session call failed."));
 #endif
         // Clear our handle and reset the delegate. 
         Session->ClearOnFindSessionsCompleteDelegate_Handle(FindSessionsDelegateHandle);
@@ -227,10 +229,10 @@ void AEOSPlayerController::HandleFindSessionsCompleted(bool bWasSuccessful, TSha
             return; 
         }
 #if P2PMODE
-        UE_LOG(LogTemp, Log, TEXT("Found lobby."));
-#else 
-        UE_LOG(LogTemp, Warning, TEXT("Found session."));
-#endif 
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleFindSessionsCompleted] Found lobby."));
+#else
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleFindSessionsCompleted] Found session."));
+#endif
         for (auto SessionInSearchResult : Search->SearchResults)
         {
             // Typically you want to check if the session is valid before joining. There is a bug in the EOS OSS where IsValid() returns false when the session is created on a DS. 
@@ -257,10 +259,10 @@ void AEOSPlayerController::HandleFindSessionsCompleted(bool bWasSuccessful, TSha
     else
     {
 #if P2PMODE
-        UE_LOG(LogTemp, Log, TEXT("Find lobby failed."));
-#else 
-        UE_LOG(LogTemp, Warning, TEXT("Find session failed."));
-#endif 
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleFindSessionsCompleted] Find lobby failed."));
+#else
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleFindSessionsCompleted] Find session failed."));
+#endif
     }
 
     // Clear our handle and reset the delegate. 
@@ -281,17 +283,17 @@ void AEOSPlayerController::JoinSession()
             this,
             &ThisClass::HandleJoinSessionCompleted));
 #if P2PMODE
-    UE_LOG(LogTemp, Log, TEXT("Joining Lobby."));
-#else 
-    UE_LOG(LogTemp, Log, TEXT("Joining session."));
-#endif 
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::JoinSession] Joining lobby."));
+#else
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::JoinSession] Joining session."));
+#endif
     if (!Session->JoinSession(0, "SessionName", *SessionToJoin))
     {
 #if P2PMODE
-        UE_LOG(LogTemp, Log, TEXT("Join Lobby failed."));
-#else 
-        UE_LOG(LogTemp, Log, TEXT("Join session failed."));
-#endif 
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::JoinSession] Join lobby call failed."));
+#else
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::JoinSession] Join session call failed."));
+#endif
 
         // Clear our handle and reset the delegate. 
         Session->ClearOnJoinSessionCompleteDelegate_Handle(JoinSessionDelegateHandle);
@@ -308,14 +310,14 @@ void AEOSPlayerController::HandleJoinSessionCompleted(FName SessionName, EOnJoin
 #if P2PMODE
     if (Result == EOnJoinSessionCompleteResult::Success)
     {
-        UE_LOG(LogTemp, Log, TEXT("Joined lobby."));
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleJoinSessionCompleted] Joined lobby."));
         ClientTravel(ConnectString, TRAVEL_Absolute);
         SetupNotifications(); // Setup our listeners for lobby event notifications
     }
 #else
     if (Result == EOnJoinSessionCompleteResult::Success)
     {
-        UE_LOG(LogTemp, Log, TEXT("Joined session."));
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleJoinSessionCompleted] Joined session."));
         if (GEngine)
         {
             // For the purposes of this tutorial overriding the ConnectString to point to localhost as we are testing locally. In a real game no need to override. Make sure you can connect over UDP to the ip:port of your server!
@@ -325,7 +327,7 @@ void AEOSPlayerController::HandleJoinSessionCompleted(FName SessionName, EOnJoin
             auto DedicatedServerJoinStatus = GEngine->Browse(GEngine->GetWorldContextFromWorldChecked(GetWorld()), DedicatedServerURL, DedicatedServerJoinError); 
             if (DedicatedServerJoinStatus == EBrowseReturnVal::Failure)
             {
-                UE_LOG(LogTemp, Error, TEXT("Failed to browse for dedicated server. Error is: %s"), *DedicatedServerJoinError); 
+                UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleJoinSessionCompleted] Failed to browse for dedicated server: %s"), *DedicatedServerJoinError);
             }
 
             // To be thorough here you should modify your derived UGameInstance to handle the NetworkError and TravelError events. 
@@ -357,7 +359,7 @@ void AEOSPlayerController::LoadTitleData()
 
     if (!TitleFile->EnumerateFiles())
     {
-        UE_LOG(LogTemp, Error, TEXT("Error enumerating title storage files."));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::LoadTitleData] EnumerateFiles call failed."));
 
         // Clear our handle and reset the delegate. 
         TitleFile->ClearOnEnumerateFilesCompleteDelegate_Handle(EnumTitleFilesDelegateHandle);
@@ -393,12 +395,12 @@ void AEOSPlayerController::HandleEnumTitleFilesCompleted(bool bWasSuccessfull, c
         // To keep things simple we are only reading the 1st file which is a .txt file. We will output the file content to the logs.  
         if (!TitleFile->ReadFile(TitleFileNames[0]))
         {
-            UE_LOG(LogTemp, Error, TEXT("Error reading title storage file %s."), *TitleFileNames[0]);
+            UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleEnumTitleFilesCompleted] ReadFile call failed for %s."), *TitleFileNames[0]);
         }
     }
     else
     {
-        UE_LOG(LogTemp, Error, TEXT("Error enumerating title storage files. Error is: %s"), *Error); 
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleEnumTitleFilesCompleted] EnumerateFiles failed: %s"), *Error);
     }
 
     // Clear our handle and reset the delegate. 
@@ -425,7 +427,7 @@ void AEOSPlayerController::HandleReadTitleFileCompleted(bool bWasSuccessfull, co
             }
             catch (std::bad_alloc)
             {
-                UE_LOG(LogTemp, Error, TEXT("Unable to allocate memory for title storage data")); 
+                UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleReadTitleFileCompleted] Unable to allocate memory for title storage data."));
                 
                 // Clear our handle and reset the delegate. 
                 TitleFile->ClearOnReadFileCompleteDelegate_Handle(ReadTitleFileDelegateHandle);
@@ -438,7 +440,7 @@ void AEOSPlayerController::HandleReadTitleFileCompleted(bool bWasSuccessfull, co
             FString FileDataAsFString = ANSI_TO_TCHAR(FileData); 
             if (FileDataAsFString.Equals("Game data"))
             {
-                UE_LOG(LogTemp, Log, TEXT("File contents are: Game data"));
+                UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleReadTitleFileCompleted] File contents are: Game data"));
             }
 
             // Clean up memory
@@ -447,15 +449,15 @@ void AEOSPlayerController::HandleReadTitleFileCompleted(bool bWasSuccessfull, co
         }
         else
         {
-            UE_LOG(LogTemp, Error, TEXT("Failed to get file contents for file named: %s."), *FileName);
+            UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleReadTitleFileCompleted] GetFileContents failed for %s."), *FileName);
         }
     }
     else
     {
-        UE_LOG(LogTemp, Error, TEXT("Error reading title storage file %s."), *FileName);
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleReadTitleFileCompleted] Error reading title storage file %s."), *FileName);
     }
-    
-    // Clear our handle and reset the delegate. 
+
+    // Clear our handle and reset the delegate.
     TitleFile->ClearOnReadFileCompleteDelegate_Handle(ReadTitleFileDelegateHandle);
     ReadTitleFileDelegateHandle.Reset();
 }
@@ -480,13 +482,13 @@ void AEOSPlayerController::WritePlayerDataStorage(FString FileName, TArray<uint8
 
     if (!NetId || Identity->GetLoginStatus(*NetId) != ELoginStatus::LoggedIn)
     {
-        UE_LOG(LogTemp, Log , TEXT("Game won't be saved as player isn't logged in."));
+        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSPlayerController::WritePlayerDataStorage] Player not logged in - game will not be saved."));
         return;
     }
 
     if (!UserCloud->WriteUserFile(*NetId, FileName,FileData))
     {
-        UE_LOG(LogTemp, Error, TEXT("Error writing file with name: %s to player data storage"),*FileName);
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::WritePlayerDataStorage] WriteUserFile call failed for %s."), *FileName);
         
         // Clear our handle and reset the delegate. 
         UserCloud->ClearOnWriteUserFileCompleteDelegate_Handle(WritePlayerDataStorageDelegateHandle); 
@@ -508,7 +510,7 @@ void AEOSPlayerController::HandleWritePlayerDataStorageCompleted(bool bWasSucces
     else
     {
         // This means that the game wasn't saved. The game should notify the player and not just quit.
-        UE_LOG(LogTemp, Error, TEXT("Error writing file with name: %s to player data storage"), *FileName);
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleWritePlayerDataStorageCompleted] Failed to write %s to player data storage."), *FileName);
     }
 
     // Clear our handle and reset the delegate. 
@@ -557,7 +559,7 @@ void AEOSPlayerController::HandleEnumPlayerFilesCompleted(bool bWasSuccessfull, 
 
         if (PlayerFiles.Num() == 0)
         {
-            UE_LOG(LogTemp, Warning, TEXT("No player files in player data storage."));
+            UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSPlayerController::HandleEnumPlayerFilesCompleted] No player files in player data storage."));
             return; 
         }
 
@@ -578,12 +580,12 @@ void AEOSPlayerController::HandleEnumPlayerFilesCompleted(bool bWasSuccessfull, 
 
         if (!PlayerData->ReadUserFile(NetId, PlayerFileNames[0]))
         {
-            UE_LOG(LogTemp, Error, TEXT("Error reading player data storage file, filename: %s."), *PlayerFileNames[0]);
+            UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleEnumPlayerFilesCompleted] ReadUserFile call failed for %s."), *PlayerFileNames[0]);
         }
     }
     else
     {
-        UE_LOG(LogTemp, Error, TEXT("Error enumerating player data storage files."));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleEnumPlayerFilesCompleted] EnumerateUserFiles failed."));
     }
 
     PlayerData->ClearOnEnumerateUserFilesCompleteDelegate_Handle(EnumPlayerFilesDelegateHandle);
@@ -607,12 +609,12 @@ void AEOSPlayerController::HandleReadPlayerFileCompleted(bool bWasSuccessfull, c
         }
         else
         {
-            UE_LOG(LogTemp, Error, TEXT("Failed to get file contents for file named: %s."), *FileName);
+            UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleReadPlayerFileCompleted] GetFileContents failed for %s."), *FileName);
         }
     }
     else
     {
-        UE_LOG(LogTemp, Error, TEXT("Error reading player data storage file %s."), *FileName);
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleReadPlayerFileCompleted] Error reading player data storage file %s."), *FileName);
     }
     PlayerData->ClearOnReadUserFileCompleteDelegate_Handle(ReadPlayerDataFileDelegateHandle);
     ReadPlayerDataFileDelegateHandle.Reset();
@@ -648,11 +650,11 @@ void AEOSPlayerController::CreateLobby(FName KeyName, FString KeyValue)
     SessionSettings->bUsesStats = true; //Needed to keep track of player stats.
     SessionSettings->Settings.Add(KeyName, FOnlineSessionSetting((KeyValue), EOnlineDataAdvertisementType::ViaOnlineService));
 
-    UE_LOG(LogTemp, Log, TEXT("Creating Lobby..."));
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::CreateLobby] Creating lobby..."));
 
     if (!Session->CreateSession(0, LobbyName, *SessionSettings))
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to create Lobby!"));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::CreateLobby] CreateSession call failed."));
     }
 }
 
@@ -664,7 +666,7 @@ void AEOSPlayerController::HandleCreateLobbyCompleted(FName EOSLobbyName, bool b
     IOnlineSessionPtr Session = Subsystem->GetSessionInterface();
     if (bWasSuccessful)
     {
-        UE_LOG(LogTemp, Log, TEXT("Lobby: %s Created!"), *EOSLobbyName.ToString());
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleCreateLobbyCompleted] Lobby %s created."), *EOSLobbyName.ToString());
         FString Map = "Game/Content/ThirdPerson/Maps/ThirdPersonMap?listen"; //Hardcoding map name here, should be passed by parameter
         FURL TravelURL;
         TravelURL.Map = Map;
@@ -673,7 +675,7 @@ void AEOSPlayerController::HandleCreateLobbyCompleted(FName EOSLobbyName, bool b
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("Failed to create lobby!"));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleCreateLobbyCompleted] Failed to create lobby."));
     }
 
     // Clear our handle and reset the delegate. 
@@ -702,12 +704,12 @@ void AEOSPlayerController::SetupNotifications()
 void AEOSPlayerController::HandleParticipantJoined(FName EOSLobbyName, const FUniqueNetId& NetId)
 {
     // Tutorial 7: Callback function called when a participant joins.
-    UE_LOG(LogTemp, Log, TEXT("A player has joined Lobby: %s"), *LobbyName.ToString());
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleParticipantJoined] Player joined lobby %s."), *LobbyName.ToString());
 }
 
 void AEOSPlayerController::HandleParticipantLeft(FName EOSLobbyName, const FUniqueNetId& NetId, EOnSessionParticipantLeftReason LeaveReason)
 {
     // Tutorial 7: Callback function called when a participant leaves. LeaveReason tells us why (Left / Disconnected / Kicked / Closed).
-    UE_LOG(LogTemp, Log, TEXT("A player has left Lobby: %s"), *LobbyName.ToString());
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleParticipantLeft] Player left lobby %s."), *LobbyName.ToString());
 }
 #endif
