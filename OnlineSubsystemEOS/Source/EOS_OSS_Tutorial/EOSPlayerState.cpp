@@ -19,91 +19,101 @@ AEOSPlayerState::AEOSPlayerState()
 void AEOSPlayerState::BeginPlay()
 {
 	// Including BeginPlay() for completeness
-	Super::BeginPlay();  
+	Super::BeginPlay();
 }
 
 void AEOSPlayerState::UpdateStat(FString StatName, int32 StatValue)
 {
 	// This function will add a StatValue to the StatName on the EOS backend.
-	// If the achievement stat threshold is meant, the achievement will unlock
+	// If the achievement stat threshold is met, the achievement will unlock.
 	IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
-	IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface();
-	IOnlineStatsPtr Stats = Subsystem->GetStatsInterface();
+	IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+	IOnlineStatsPtr Stats = Subsystem ? Subsystem->GetStatsInterface() : nullptr;
 
-	// Check if player is online before trying to update stat 
-	FUniqueNetIdPtr NetId = Identity->GetUniquePlayerId(0);
-
-	if (!NetId || Identity->GetLoginStatus(*NetId) != ELoginStatus::LoggedIn)
+	if (Identity.IsValid() && Stats.IsValid())
 	{
-		return;
+		// Check if player is logged in before trying to update stat.
+		const FUniqueNetIdPtr LocalNetId = Identity->GetUniquePlayerId(0);
+		if (LocalNetId.IsValid() && Identity->GetLoginStatus(0) == ELoginStatus::Type::LoggedIn)
+		{
+			// Prepare stat update by setting input arguments to update stat.
+			FOnlineStatsUserUpdatedStats StatToUpdate = FOnlineStatsUserUpdatedStats(LocalNetId.ToSharedRef());
+			FOnlineStatUpdate IngestAmount = FOnlineStatUpdate(StatValue, FOnlineStatUpdate::EOnlineStatModificationType::Unknown);
+			StatToUpdate.Stats.Add(StatName.ToUpper(), IngestAmount);
+
+			TArray<FOnlineStatsUserUpdatedStats> StatsToUpdate;
+			StatsToUpdate.Add(StatToUpdate);
+
+			// Unlike other OSS functions we've seen in previous modules, there is no delegate handle for Stat Updates.
+			// Instead we use an inline weak lambda so we don't keep `this` alive past actor destruction.
+			Stats->UpdateStats(LocalNetId.ToSharedRef(), StatsToUpdate,
+				FOnlineStatsUpdateStatsComplete::CreateWeakLambda(this, [](const FOnlineError& UpdateResult)
+					{
+						if (!UpdateResult.bSucceeded)
+						{
+							UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::UpdateStat] Error updating player statistics: %s"), *UpdateResult.ErrorCode);
+						}
+					}));
+
+			// Fetch our 2 leaderboards when updating stats.
+			QueryLeaderboardGlobal();
+			QueryLeaderboardFriends(StatName);
+		}
+		else
+		{
+			UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::UpdateStat] Failed - Player logged out"));
+		}
 	}
-	
-	// Prepare stat update by setting input arguments to update stat. 
-	FOnlineStatsUserUpdatedStats StatToUpdate = FOnlineStatsUserUpdatedStats(NetId.ToSharedRef());
-	FOnlineStatUpdate IngestAmount = FOnlineStatUpdate(StatValue, FOnlineStatUpdate::EOnlineStatModificationType::Unknown); 
-	StatToUpdate.Stats.Add(StatName.ToUpper(), IngestAmount); 
-
-	TArray<FOnlineStatsUserUpdatedStats> StatsToUpdate; 
-	StatsToUpdate.Add(StatToUpdate); 
-
-	// Unlike other OSS functions we've seen in previous modules, there is no delegate handle for Stat Updates. 
-	// Instead we will use an inline lambda 
-	Stats->UpdateStats(NetId.ToSharedRef(),StatsToUpdate,
-		FOnlineStatsUpdateStatsComplete::CreateLambda([](
-			const FOnlineError& UpdateResult)
-			{
-				// Just log if the update failed. 
-				if (!UpdateResult.bSucceeded)
-				{
-					UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::UpdateStat] Error updating player statistics: %s"), *UpdateResult.ErrorCode);
-					return;
-				}
-			}));
-	
-	// Fetch our 2 leaderboards when updating stats. 
-	QueryLeaderboardGlobal(); 
-	QueryLeaderboardFriends(StatName); 
+	else
+	{
+		UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::UpdateStat] Identity and/or Stats interface null"));
+	}
 }
 
 void AEOSPlayerState::QueryLeaderboardGlobal(FName LeaderboardName)
 {
-	// This function will retrieve a global leaderboard for a certain rank range
-	// The rank range is hardcoded to 0,10. In a real game you may want to pass this as a parameter. 
-
+	// This function will retrieve a global leaderboard for a certain rank range.
+	// The rank range is hardcoded to 0,10. In a real game you may want to pass this as a parameter.
 	IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
-	IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface();
-	IOnlineLeaderboardsPtr Leaderboards = Subsystem->GetLeaderboardsInterface();
+	IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+	IOnlineLeaderboardsPtr Leaderboards = Subsystem ? Subsystem->GetLeaderboardsInterface() : nullptr;
 
-	// Again check if the player is logged in 
-	FUniqueNetIdPtr NetId = Identity->GetUniquePlayerId(0);
-
-	if (!NetId || Identity->GetLoginStatus(*NetId) != ELoginStatus::LoggedIn)
+	if (Identity.IsValid() && Leaderboards.IsValid())
 	{
-		return;
+		const FUniqueNetIdPtr LocalNetId = Identity->GetUniquePlayerId(0);
+		if (LocalNetId.IsValid() && Identity->GetLoginStatus(0) == ELoginStatus::Type::LoggedIn)
+		{
+			FOnlineLeaderboardReadRef GlobalLeaderboardReadRef = MakeShared<FOnlineLeaderboardRead, ESPMode::ThreadSafe>();
+			// UE 5.8: FOnlineLeaderboardRead::LeaderboardName / SortedColumn are FNameDeprecationWrapper (FString-based).
+			GlobalLeaderboardReadRef->LeaderboardName = LeaderboardName.ToString();
+
+			// Bind the shared completion handler (used for both global and friend leaderboards).
+			QueryLeaderboardDelegateHandle =
+				Leaderboards->AddOnLeaderboardReadCompleteDelegate_Handle(FOnLeaderboardReadCompleteDelegate::CreateUObject(
+					this,
+					&ThisClass::HandleQueryLeaderboarComplete,
+					GlobalLeaderboardReadRef));
+
+			// Try to read the leaderboard. If it fails synchronously, log, clear and reset the delegate.
+			if (!Leaderboards->ReadLeaderboardsAroundRank(0, 10, GlobalLeaderboardReadRef))
+			{
+				UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::QueryLeaderboardGlobal] ReadLeaderboardsAroundRank call failed."));
+				Leaderboards->ClearOnLeaderboardReadCompleteDelegate_Handle(QueryLeaderboardDelegateHandle);
+				QueryLeaderboardDelegateHandle.Reset();
+			}
+		}
+		else
+		{
+			UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::QueryLeaderboardGlobal] Failed - Player logged out"));
+		}
 	}
-
-	FOnlineLeaderboardReadRef GlobalLeaderboardReadRef = MakeShared<FOnlineLeaderboardRead, ESPMode::ThreadSafe>();
-	// UE 5.8: FOnlineLeaderboardRead::LeaderboardName / SortedColumn are now FNameDeprecationWrapper (an FString-based wrapper). Assign an FString.
-	GlobalLeaderboardReadRef->LeaderboardName = LeaderboardName.ToString();
-	
-	// Create a delegate handle and pass in the function to execute once the leaderboard is fetch. 
-	// The function here is the same as with the friends leaderboard. 
-	QueryLeaderboardDelegateHandle = 
-		Leaderboards->AddOnLeaderboardReadCompleteDelegate_Handle(FOnLeaderboardReadCompleteDelegate::CreateUObject(
-		this,
-		&ThisClass::HandleQueryLeaderboarComplete,
-		GlobalLeaderboardReadRef));
-
-	// Try to read the leaderboard. If it fails, log the error, clear and reset the delegate. 
-	if (!Leaderboards->ReadLeaderboardsAroundRank(0,10, GlobalLeaderboardReadRef))
+	else
 	{
-		UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::QueryLeaderboardGlobal] ReadLeaderboardsAroundRank call failed."));
-		Leaderboards->ClearOnLeaderboardReadCompleteDelegate_Handle(QueryLeaderboardDelegateHandle);
-		QueryLeaderboardDelegateHandle.Reset();
+		UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::QueryLeaderboardGlobal] Identity and/or Leaderboards interface null"));
 	}
 }
 
-// Make sure in your code you don't call this too early. The EOS OSS needs to populate friend list shortly after login.
+// Make sure in your code you don't call this too early. The EOS OSS needs to populate the friend list shortly after login.
 void AEOSPlayerState::QueryLeaderboardFriends(FString StatName, FName LeaderboardName)
 {
 	// This function will retrieve a friend leaderboard with specific columns and a sorted column.
@@ -124,40 +134,45 @@ void AEOSPlayerState::QueryLeaderboardFriends(FString StatName, FName Leaderboar
 	// Workaround: explicitly ReadFriendsList("default") first, then build the friend-id array and
 	// call the lower-level ReadLeaderboards() directly. This also makes the underlying flow more
 	// obvious for tutorial readers.
-
 	IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
-	IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface();
-	IOnlineFriendsPtr Friends = Subsystem->GetFriendsInterface();
+	IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+	IOnlineFriendsPtr Friends = Subsystem ? Subsystem->GetFriendsInterface() : nullptr;
 
-	// Check if player is logged in...
-	FUniqueNetIdPtr NetId = Identity->GetUniquePlayerId(0);
-
-	if (!NetId || Identity->GetLoginStatus(*NetId) != ELoginStatus::LoggedIn)
+	if (Identity.IsValid() && Friends.IsValid())
 	{
-		return;
+		const FUniqueNetIdPtr LocalNetId = Identity->GetUniquePlayerId(0);
+		if (LocalNetId.IsValid() && Identity->GetLoginStatus(0) == ELoginStatus::Type::LoggedIn)
+		{
+			// Prepare arguments. Notice the column metadata is a stat and can be different than the sorted column.
+			// UE 5.8: FOnlineLeaderboardRead::LeaderboardName / SortedColumn are FNameDeprecationWrapper (FString-based); FColumnMetaData takes FString.
+			FOnlineLeaderboardReadRef FriendLeaderboardReadRef = MakeShared<FOnlineLeaderboardRead, ESPMode::ThreadSafe>();
+			FriendLeaderboardReadRef->LeaderboardName = LeaderboardName.ToString();
+			FriendLeaderboardReadRef->ColumnMetadata.Add(FColumnMetaData(StatName, EOnlineKeyValuePairDataType::Int32));
+			FriendLeaderboardReadRef->SortedColumn = StatName;
+
+			// Step 1: Populate the local friends list. The list name must match one of EFriendsLists values
+			// (default / onlinePlayers / inGamePlayers / inGameAndSessionPlayers). We use Default here.
+			const FString DefaultList = EFriendsLists::ToString(EFriendsLists::Default);
+			Friends->ReadFriendsList(0, DefaultList, FOnReadFriendsListComplete::CreateUObject(
+				this,
+				&ThisClass::HandleReadFriendsListForLeaderboard,
+				FriendLeaderboardReadRef));
+		}
+		else
+		{
+			UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::QueryLeaderboardFriends] Failed - Player logged out"));
+		}
 	}
-
-	// Prepare arguments. Notice the column metadata is a stat and can be different than the sorted column.
-	// UE 5.8: FOnlineLeaderboardRead::LeaderboardName / SortedColumn are FNameDeprecationWrapper (FString-based); FColumnMetaData takes FString.
-	FOnlineLeaderboardReadRef FriendLeaderboardReadRef = MakeShared<FOnlineLeaderboardRead, ESPMode::ThreadSafe>();
-	FriendLeaderboardReadRef->LeaderboardName = LeaderboardName.ToString();
-	FriendLeaderboardReadRef->ColumnMetadata.Add(FColumnMetaData(StatName, EOnlineKeyValuePairDataType::Int32));
-	FriendLeaderboardReadRef->SortedColumn = StatName;
-
-	// Step 1: Populate the local friends list. The list name must match one of EFriendsLists values
-	// (default / onlinePlayers / inGamePlayers / inGameAndSessionPlayers). We use Default here.
-	const FString DefaultList = EFriendsLists::ToString(EFriendsLists::Default);
-	Friends->ReadFriendsList(0, DefaultList, FOnReadFriendsListComplete::CreateUObject(
-		this,
-		&ThisClass::HandleReadFriendsListForLeaderboard,
-		FriendLeaderboardReadRef));
+	else
+	{
+		UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::QueryLeaderboardFriends] Identity and/or Friends interface null"));
+	}
 }
 
 void AEOSPlayerState::HandleReadFriendsListForLeaderboard(int32 LocalUserNum, bool bWasSuccessful, const FString& ListName, const FString& ErrorStr, FOnlineLeaderboardReadRef LeaderboardReadRef)
 {
 	// Callback of the ReadFriendsList() call in QueryLeaderboardFriends. See the note there for why
 	// the tutorial manually resolves friend IDs instead of calling ReadLeaderboardsForFriends().
-
 	if (!bWasSuccessful)
 	{
 		UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::HandleReadFriendsListForLeaderboard] Could not read friends list for leaderboard query: %s"), *ErrorStr);
@@ -165,62 +180,68 @@ void AEOSPlayerState::HandleReadFriendsListForLeaderboard(int32 LocalUserNum, bo
 	}
 
 	IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
-	IOnlineFriendsPtr Friends = Subsystem->GetFriendsInterface();
-	IOnlineLeaderboardsPtr Leaderboards = Subsystem->GetLeaderboardsInterface();
+	IOnlineFriendsPtr Friends = Subsystem ? Subsystem->GetFriendsInterface() : nullptr;
+	IOnlineLeaderboardsPtr Leaderboards = Subsystem ? Subsystem->GetLeaderboardsInterface() : nullptr;
 
-	// Step 2: Read the now-cached friends list and build an array of unique IDs.
-	TArray<TSharedRef<FOnlineFriend>> FriendsArray;
-	Friends->GetFriendsList(LocalUserNum, ListName, FriendsArray);
-
-	if (FriendsArray.Num() == 0)
+	if (Friends.IsValid() && Leaderboards.IsValid())
 	{
-		UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerState::HandleReadFriendsListForLeaderboard] No friends in list - skipping friend leaderboard query."));
-		return;
+		// Step 2: Read the now-cached friends list and build an array of unique IDs.
+		TArray<TSharedRef<FOnlineFriend>> FriendsArray;
+		Friends->GetFriendsList(LocalUserNum, ListName, FriendsArray);
+
+		if (FriendsArray.Num() == 0)
+		{
+			UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerState::HandleReadFriendsListForLeaderboard] No friends in list - skipping friend leaderboard query."));
+			return;
+		}
+
+		TArray<FUniqueNetIdRef> FriendIds;
+		FriendIds.Reserve(FriendsArray.Num());
+		for (const TSharedRef<FOnlineFriend>& Friend : FriendsArray)
+		{
+			FriendIds.Add(Friend->GetUserId());
+		}
+
+		// Step 3: Bind the leaderboard-read callback and issue the explicit ReadLeaderboards() call.
+		// Same handler used for the global leaderboard path.
+		QueryLeaderboardDelegateHandle =
+			Leaderboards->AddOnLeaderboardReadCompleteDelegate_Handle(FOnLeaderboardReadCompleteDelegate::CreateUObject(
+				this,
+				&ThisClass::HandleQueryLeaderboarComplete,
+				LeaderboardReadRef));
+
+		if (!Leaderboards->ReadLeaderboards(FriendIds, LeaderboardReadRef))
+		{
+			UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::HandleReadFriendsListForLeaderboard] ReadLeaderboards call failed."));
+			Leaderboards->ClearOnLeaderboardReadCompleteDelegate_Handle(QueryLeaderboardDelegateHandle);
+			QueryLeaderboardDelegateHandle.Reset();
+		}
 	}
-
-	TArray<FUniqueNetIdRef> FriendIds;
-	FriendIds.Reserve(FriendsArray.Num());
-	for (const TSharedRef<FOnlineFriend>& Friend : FriendsArray)
+	else
 	{
-		FriendIds.Add(Friend->GetUserId());
-	}
-
-	// Step 3: Bind the leaderboard-read callback and issue the explicit ReadLeaderboards() call.
-	// Same handler used for the global leaderboard path.
-	QueryLeaderboardDelegateHandle =
-		Leaderboards->AddOnLeaderboardReadCompleteDelegate_Handle(FOnLeaderboardReadCompleteDelegate::CreateUObject(
-			this,
-			&ThisClass::HandleQueryLeaderboarComplete,
-			LeaderboardReadRef));
-
-	if (!Leaderboards->ReadLeaderboards(FriendIds, LeaderboardReadRef))
-	{
-		UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::HandleReadFriendsListForLeaderboard] ReadLeaderboards call failed."));
-		Leaderboards->ClearOnLeaderboardReadCompleteDelegate_Handle(QueryLeaderboardDelegateHandle);
-		QueryLeaderboardDelegateHandle.Reset();
+		UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::HandleReadFriendsListForLeaderboard] Friends and/or Leaderboards interface null"));
 	}
 }
 
 void AEOSPlayerState::HandleQueryLeaderboarComplete(bool bWasSuccessful, FOnlineLeaderboardReadRef GlobalLeaderboardReadRef)
 {
-	// Function triggered when either global or friend leaderboard query completes. 
+	// Function triggered when either global or friend leaderboard query completes.
 	IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
-	IOnlineLeaderboardsPtr Leaderboards = Subsystem->GetLeaderboardsInterface();
+	IOnlineLeaderboardsPtr Leaderboards = Subsystem ? Subsystem->GetLeaderboardsInterface() : nullptr;
 
 	if (bWasSuccessful)
 	{
-		// In a real game you would store the leaderboard data and show it in a UI. 
-		// To keep things simple in this course, we are writing the data to the UE logs. 
-		for ( auto Row : GlobalLeaderboardReadRef->Rows )
+		// In a real game you would store the leaderboard data and show it in a UI.
+		// To keep things simple in this course, we are writing the data to the UE logs.
+		for (const auto& Row : GlobalLeaderboardReadRef->Rows)
 		{
 			UE_LOG(LogEOSOSSTutorial, VeryVerbose, TEXT("[AEOSPlayerState::HandleQueryLeaderboarComplete] Player Id: %s, Rank: %d"), *(*Row.PlayerId).ToString(), Row.Rank);
 		}
 	}
 
-	Leaderboards->ClearOnLeaderboardReadCompleteDelegate_Handle(QueryLeaderboardDelegateHandle);
-	QueryLeaderboardDelegateHandle.Reset();
+	if (Leaderboards.IsValid())
+	{
+		Leaderboards->ClearOnLeaderboardReadCompleteDelegate_Handle(QueryLeaderboardDelegateHandle);
+		QueryLeaderboardDelegateHandle.Reset();
+	}
 }
-
-
-
-
