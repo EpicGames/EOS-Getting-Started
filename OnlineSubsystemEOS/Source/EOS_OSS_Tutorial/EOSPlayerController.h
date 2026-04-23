@@ -11,6 +11,14 @@
 /** New log category for this tutorial. Bump verbosity with `log LogEOSOSSTutorial Verbose` (or VeryVerbose) to see success-path messages. */
 DECLARE_LOG_CATEGORY_EXTERN(LogEOSOSSTutorial, Log, All);
 
+#if !P2PMODE
+// Forward declarations for the IVoiceChat API - kept out of the header proper so including this
+// controller header doesn't pull the voice plugin into every TU that touches AEOSPlayerController.
+class IVoiceChat;
+class IVoiceChatUser;
+struct FVoiceChatResult;
+#endif
+
 
 /**
  * Child class of APlayerController to hold EOS OSS code. 
@@ -118,6 +126,35 @@ protected:
 
 	// Delegate to bind callback event for player data file storage file read.
 	FDelegateHandle ReadPlayerDataFileDelegateHandle;
+
+public:
+	// Server -> client RPC delivering a per-player EOS RTC join-room token and media-server URL.
+	// Declared outside the P2PMODE guard because UHT does not allow UFUNCTION inside preprocessor
+	// blocks; the _Implementation body is guarded in the .cpp instead.
+	UFUNCTION(Client, Reliable)
+	void Client_ReceiveVoiceCredentials(const FString& RoomName, const FString& ParticipantToken, const FString& ClientBaseUrl);
+
+#if !P2PMODE
+protected:
+	// Per-session voice-chat opt-in. Checked when the server-issued credentials RPC arrives.
+	bool bVoiceChatEnabled = true;
+
+	// Teardown for the voice session. Chains LeaveChannel -> Logout -> ReleaseUser -> Disconnect. Called from EndPlay.
+	void LeaveVoiceChat();
+
+	// Per-step callbacks for the IVoiceChat Connect -> Login -> JoinChannel sequence.
+	void HandleVoiceChatConnectComplete(const FVoiceChatResult& Result);
+	void HandleVoiceChatLoginComplete(const FString& InPlayerName, const FVoiceChatResult& Result);
+	void HandleVoiceChatJoinChannelComplete(const FString& ChannelName, const FVoiceChatResult& Result);
+
+	// Plugin user handle from IVoiceChat::CreateUser(). Shared across Login/Join/Leave/Logout.
+	IVoiceChatUser* VoiceChatUser = nullptr;
+
+	// Credentials received from the server RPC, cached for the async Connect -> Login -> Join chain.
+	FString CurrentVoiceRoomName;
+	FString CurrentVoiceToken;
+	FString CurrentVoiceClientBaseUrl;
+#endif
 
 #if P2PMODE
 	// Hardcoded name for the lobby.

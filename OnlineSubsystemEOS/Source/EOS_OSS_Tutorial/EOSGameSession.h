@@ -93,12 +93,25 @@ protected:
 	// Delegate to bind callback event for end session. 
 	FDelegateHandle EndSessionDelegateHandle;
 
-	// Function to Destroy EOS Session. 
-	void DestroySession(); 
+	// Function to Destroy EOS Session.
+	void DestroySession();
 
-	// Callback function. This function will run when destroy session compeletes.
+	// Callback function. This function will run when destroy session completes.
 	void HandleDestroySessionCompleted(FName SessionName, bool bWasSuccessful);
 
-	// Delegate to bind callback event for destroy session. 
-	FDelegateHandle DestroySessionDelegateHandle; 
+	// Delegate to bind callback event for destroy session.
+	FDelegateHandle DestroySessionDelegateHandle;
+
+#if !P2PMODE
+protected:
+	// EOS RTC room name for this match. Chosen by the server so every player joins the same room.
+	FString VoiceRoomName;
+
+	// Mints a per-player voice token via the EOS Voice Web API and forwards it to the owning
+	// client through Client_ReceiveVoiceCredentials. Called from HandleRegisterPlayerCompleted.
+	void RequestVoiceCredentialsForPlayer(class AEOSPlayerController* TargetPC, const FUniqueNetIdRef& PlayerId);
+
+	// Finds the AEOSPlayerController whose PlayerState owns the supplied FUniqueNetId.
+	class AEOSPlayerController* FindPlayerControllerByNetId(const FUniqueNetIdRef& PlayerId) const;
+#endif
 };

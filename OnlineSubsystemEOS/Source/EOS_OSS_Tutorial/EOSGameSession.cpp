@@ -12,6 +12,20 @@
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "Interfaces/OnlineStatsInterface.h"
 
+#if !P2PMODE
+// Tutorial 8 (server-side voice flow):
+#include "EOSSettings.h"                       // UEOSSettings::GetSelectedArtifactSettings - needed to read Server credentials ourselves because EOSVoiceChat exposes no server-side token-issuance API.
+#include "OnlineSubsystemEOSTypesPublic.h"     // IUniqueNetIdEOS - exposes GetProductUserId() on OSS-produced FUniqueNetIds.
+#include "EOSShared.h"                         // LexToString(EOS_ProductUserId) - formats the PUID as the string the Voice Web API wants.
+#include "HttpModule.h"                        // FHttpModule - used for the two Voice-Web-API calls below.
+#include "Interfaces/IHttpRequest.h"
+#include "Interfaces/IHttpResponse.h"
+#include "Misc/Base64.h"                       // FBase64::Encode - HTTP Basic auth header for the OAuth request.
+#include "Dom/JsonObject.h"                    // FJsonObject - parse EOS's responses.
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#endif
+
 
 AEOSGameSession::AEOSGameSession()
 {
@@ -149,6 +163,11 @@ void AEOSGameSession::CreateSession(FName KeyName, FString KeyValue) // Dedicate
         // This custom attribute will be used in searches on GameClients.
         SessionSettings->Settings.Add(KeyName, FOnlineSessionSetting((KeyValue), EOnlineDataAdvertisementType::ViaOnlineService));
 
+#if !P2PMODE
+        // Tutorial 8: EOS RTC room name for this match. Delivered to clients with their voice credentials.
+        VoiceRoomName = SessionName.ToString() + TEXT("_Voice");
+#endif
+
         UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::CreateSession] Creating session..."));
 
         if (!Session->CreateSession(0, SessionName, *SessionSettings))
@@ -225,6 +244,22 @@ void AEOSGameSession::HandleRegisterPlayerCompleted(FName EOSSessionName, const 
     if (bWasSuccesful)
     {
         UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::HandleRegisterPlayerCompleted] Player registered in EOS session."));
+
+#if !P2PMODE
+        // Tutorial 8: Mint voice credentials for each newly-registered player.
+        for (const FUniqueNetIdRef& PlayerId : PlayerIds)
+        {
+            if (AEOSPlayerController* OwningPC = FindPlayerControllerByNetId(PlayerId))
+            {
+                RequestVoiceCredentialsForPlayer(OwningPC, PlayerId);
+            }
+            else
+            {
+                UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSGameSession::HandleRegisterPlayerCompleted] No PlayerController matched PlayerId=%s - voice credentials will not be issued for this player."), *PlayerId->ToString());
+            }
+        }
+#endif
+
         if (NumberOfPlayersInSession == MaxNumberOfPlayersInSession)
         {
             StartSession(); // Start the session when we've reached the max number of players.
@@ -455,3 +490,186 @@ void AEOSGameSession::HandleDestroySessionCompleted(FName EOSSessionName, bool b
         DestroySessionDelegateHandle.Reset();
     }
 }
+
+
+#if !P2PMODE
+// ----------------------------------------------------------------------------------------------
+// Tutorial 8: Server-side voice-credentials flow (EOS Voice Web API).
+// ----------------------------------------------------------------------------------------------
+
+AEOSPlayerController* AEOSGameSession::FindPlayerControllerByNetId(const FUniqueNetIdRef& PlayerId) const
+{
+    const UWorld* World = GetWorld();
+    if (!World)
+    {
+        return nullptr;
+    }
+
+    for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+    {
+        APlayerController* PC = It->Get();
+        if (!PC || !PC->PlayerState)
+        {
+            continue;
+        }
+
+        const FUniqueNetIdRepl& StateId = PC->PlayerState->GetUniqueId();
+        if (StateId.IsValid() && *StateId == *PlayerId)
+        {
+            return Cast<AEOSPlayerController>(PC);
+        }
+    }
+    return nullptr;
+}
+
+void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* TargetPC, const FUniqueNetIdRef& PlayerId)
+{
+    // Resolve the Server artifact (selected via -epicapp=Server). Reading UEOSSettings from game
+    // code is unusual - see the include comment at the top of this file for why it's needed here.
+    FEOSArtifactSettings ArtifactSettings;
+    if (!UEOSSettings::GetSelectedArtifactSettings(ArtifactSettings))
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer] No selected EOS artifact - cannot call Voice Web API."));
+        return;
+    }
+    if (ArtifactSettings.ClientId.IsEmpty() || ArtifactSettings.ClientSecret.IsEmpty() || ArtifactSettings.DeploymentId.IsEmpty())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer] Server artifact is missing credentials - cannot mint voice tokens. Fill in the 'Server' +Artifacts entry in Config/DefaultEngine.ini."));
+        return;
+    }
+
+    // Voice Web API wants the bare ProductUserId; FUniqueNetId::ToString returns the composite
+    // "<EAS>|<PUID>" form. Type-guard the cast: see EOSPlayerController.cpp's identity-check
+    // comment for why the voice path checks this when nothing else in the tutorial does.
+    if (PlayerId->GetType() != EOS_SUBSYSTEM)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer] PlayerId is not an EOS id (type=%s)."), *PlayerId->GetType().ToString());
+        return;
+    }
+    const IUniqueNetIdEOS& EosPlayerId = static_cast<const IUniqueNetIdEOS&>(*PlayerId);
+    const FString TargetPuid = LexToString(EosPlayerId.GetProductUserId());
+    if (TargetPuid.IsEmpty())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer] Could not extract ProductUserId from PlayerId=%s"), *PlayerId->ToString());
+        return;
+    }
+
+    // Capture per-request state for the async chain. Use a weak ref to the PC so the
+    // callback can detect a destroyed controller (WeakPC.Get() returns null) and bail
+    // instead of dereferencing freed memory.
+    TWeakObjectPtr<AEOSPlayerController> WeakPC(TargetPC);
+    const FString LocalRoomName   = VoiceRoomName;
+    const FString LocalPuid       = TargetPuid;
+    const FString DeploymentId    = ArtifactSettings.DeploymentId;
+
+    // Step 1: OAuth access token (Connect Web API, client_credentials grant). A production
+    // title would cache this token and reuse it until expiry (1h) instead of re-authing per player.
+    // https://dev.epicgames.com/docs/web-api-ref/connect-web-api#token-request
+    const FString BasicAuthRaw = FString::Printf(TEXT("%s:%s"), *ArtifactSettings.ClientId, *ArtifactSettings.ClientSecret);
+    const FString BasicAuth    = FBase64::Encode(BasicAuthRaw);
+
+    TSharedRef<IHttpRequest> AuthReq = FHttpModule::Get().CreateRequest();
+    AuthReq->SetURL(TEXT("https://api.epicgames.dev/auth/v1/oauth/token"));
+    AuthReq->SetVerb(TEXT("POST"));
+    AuthReq->SetHeader(TEXT("Authorization"), FString::Printf(TEXT("Basic %s"), *BasicAuth));
+    AuthReq->SetHeader(TEXT("Content-Type"), TEXT("application/x-www-form-urlencoded"));
+    AuthReq->SetHeader(TEXT("Accept"), TEXT("application/json"));
+    AuthReq->SetContentAsString(FString::Printf(TEXT("grant_type=client_credentials&deployment_id=%s"), *DeploymentId));
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer] Requesting OAuth token for Voice Web API (player PUID=%s)."), *LocalPuid);
+
+    AuthReq->OnProcessRequestComplete().BindLambda(
+        [WeakPC, LocalRoomName, LocalPuid, DeploymentId]
+        (FHttpRequestPtr /*AuthReqPtr*/, FHttpResponsePtr AuthResp, bool bAuthOk)
+        {
+            if (!bAuthOk || !AuthResp.IsValid() || AuthResp->GetResponseCode() != 200)
+            {
+                const int32 Code = AuthResp.IsValid() ? AuthResp->GetResponseCode() : -1;
+                const FString Body = AuthResp.IsValid() ? AuthResp->GetContentAsString() : TEXT("<no response>");
+                UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer OAuth] OAuth request failed (http=%d): %s"), Code, *Body);
+                return;
+            }
+
+            // Parse the access_token out of the response body.
+            FString AccessToken;
+            TSharedPtr<FJsonObject> AuthJson;
+            const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(AuthResp->GetContentAsString());
+            if (!FJsonSerializer::Deserialize(Reader, AuthJson) || !AuthJson.IsValid() || !AuthJson->TryGetStringField(TEXT("access_token"), AccessToken) || AccessToken.IsEmpty())
+            {
+                UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer OAuth] OAuth response missing access_token: %s"), *AuthResp->GetContentAsString());
+                return;
+            }
+
+            // Step 2: createRoomToken (Voice Web API). Requires `Voice:createRoomToken` policy on the Server client.
+            // https://dev.epicgames.com/docs/web-api-ref/voice-web-api#creating-room-tokens
+            const FString RoomUrl = FString::Printf(TEXT("https://api.epicgames.dev/rtc/v1/%s/room/%s"), *DeploymentId, *LocalRoomName);
+            const FString RoomBody = FString::Printf(
+                TEXT("{\"participants\":[{\"puid\":\"%s\",\"hardMuted\":false}]}"),
+                *LocalPuid);
+
+            TSharedRef<IHttpRequest> RoomReq = FHttpModule::Get().CreateRequest();
+            RoomReq->SetURL(RoomUrl);
+            RoomReq->SetVerb(TEXT("POST"));
+            RoomReq->SetHeader(TEXT("Authorization"), FString::Printf(TEXT("Bearer %s"), *AccessToken));
+            RoomReq->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+            RoomReq->SetHeader(TEXT("Accept"), TEXT("application/json"));
+            RoomReq->SetContentAsString(RoomBody);
+
+            RoomReq->OnProcessRequestComplete().BindLambda(
+                [WeakPC, LocalRoomName, LocalPuid]
+                (FHttpRequestPtr /*RoomReqPtr*/, FHttpResponsePtr RoomResp, bool bRoomOk)
+                {
+                    AEOSPlayerController* PC = WeakPC.Get();
+                    if (!PC)
+                    {
+                        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer createRoomToken] PlayerController went away before voice token arrived - discarding."));
+                        return;
+                    }
+
+                    if (!bRoomOk || !RoomResp.IsValid() || RoomResp->GetResponseCode() != 200)
+                    {
+                        const int32 Code = RoomResp.IsValid() ? RoomResp->GetResponseCode() : -1;
+                        const FString Body = RoomResp.IsValid() ? RoomResp->GetContentAsString() : TEXT("<no response>");
+                        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer createRoomToken] createRoomToken failed (http=%d) for PUID=%s: %s"), Code, *LocalPuid, *Body);
+                        return;
+                    }
+
+                    TSharedPtr<FJsonObject> RoomJson;
+                    const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RoomResp->GetContentAsString());
+                    if (!FJsonSerializer::Deserialize(Reader, RoomJson) || !RoomJson.IsValid())
+                    {
+                        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer createRoomToken] createRoomToken response was not valid JSON: %s"), *RoomResp->GetContentAsString());
+                        return;
+                    }
+
+                    FString ClientBaseUrl;
+                    RoomJson->TryGetStringField(TEXT("clientBaseUrl"), ClientBaseUrl);
+
+                    // We requested one PUID, so the token is at participants[0].token.
+                    FString ParticipantToken;
+                    const TArray<TSharedPtr<FJsonValue>>* ParticipantsArr = nullptr;
+                    if (RoomJson->TryGetArrayField(TEXT("participants"), ParticipantsArr) && ParticipantsArr && ParticipantsArr->Num() > 0)
+                    {
+                        const TSharedPtr<FJsonObject>* FirstObj = nullptr;
+                        if ((*ParticipantsArr)[0]->TryGetObject(FirstObj) && FirstObj)
+                        {
+                            (*FirstObj)->TryGetStringField(TEXT("token"), ParticipantToken);
+                        }
+                    }
+
+                    if (ClientBaseUrl.IsEmpty() || ParticipantToken.IsEmpty())
+                    {
+                        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer createRoomToken] createRoomToken response missing clientBaseUrl or participant token (url empty=%d token empty=%d): %s"), ClientBaseUrl.IsEmpty(), ParticipantToken.IsEmpty(), *RoomResp->GetContentAsString());
+                        return;
+                    }
+
+                    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer createRoomToken] Forwarding voice credentials for room '%s' to PlayerController %s."), *LocalRoomName, *PC->GetName());
+                    PC->Client_ReceiveVoiceCredentials(LocalRoomName, ParticipantToken, ClientBaseUrl);
+                });
+
+            RoomReq->ProcessRequest();
+        });
+
+    AuthReq->ProcessRequest();
+}
+#endif // !P2PMODE

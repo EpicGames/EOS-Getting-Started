@@ -15,6 +15,16 @@
 #include "Serialization/ArchiveLoadCompressedProxy.h"
 #include "EOS_OSS_TutorialGameMode.h"
 
+#if !P2PMODE
+#include "VoiceChat.h"                      // IVoiceChat, IVoiceChatUser, FVoiceChatResult, EVoiceChatChannelType, all the FOnVoiceChat*CompleteDelegate typedefs.
+#include "EOSVoiceChat.h"                   // FEOSVoiceChat::SetPlatformHandle() - used to reuse OSS's EOS platform rather than letting the voice plugin create a second one.
+#include "EOSVoiceChatTypes.h"               // FEOSVoiceChatChannelCredentials::ToJson - we build the channel-credentials blob by hand from the server-supplied token + url.
+#include "IOnlineSubsystemEOS.h"             // IOnlineSubsystemEOS::GetEOSPlatformHandle() - source of the platform handle we hand to the voice plugin.
+#include "OnlineSubsystemEOSTypesPublic.h"  // IUniqueNetIdEOS - exposes GetProductUserId() on OSS-produced FUniqueNetIds.
+#include "EOSShared.h"                       // LexToString(EOS_ProductUserId) - formats the PUID as the string IVoiceChatUser::Login wants.
+#include "Engine/LocalPlayer.h"              // ULocalPlayer::GetPlatformUserId() for the voice Login() call.
+#endif
+
 DEFINE_LOG_CATEGORY(LogEOSOSSTutorial);
 
 
@@ -36,6 +46,12 @@ void AEOSPlayerController::BeginPlay()
 
 void AEOSPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+#if !P2PMODE
+    // Tutorial 8: Kick off voice teardown before clearing OSS delegates. Runs async - the chain
+    // continues after EndPlay returns.
+    LeaveVoiceChat();
+#endif
+
     // Clear every delegate handle this controller bound on the OSS interfaces. Without this the OSS
     // multicast lists retain stale handles pointing at our (soon-to-be-GC'd) UObject. The
     // CreateUObject bindings themselves are weak and will no-op, but letting them accumulate leaks
@@ -442,6 +458,8 @@ void AEOSPlayerController::HandleJoinSessionCompleted(FName SessionName, EOnJoin
             // This should also be done to handle the error "FULL" returned by the server.
             // As we are testing locally, and for the purposes of keeping this tutorial simple, this is omitted.
         }
+
+        // Tutorial 8: Voice startup is server-driven - see Client_ReceiveVoiceCredentials below.
     }
 #endif
 
@@ -760,9 +778,277 @@ void AEOSPlayerController::HandleReadPlayerFileCompleted(bool bWasSuccessfull, c
     }
 }
 
+// Tutorial 8: Voice chat via EOS RTC, dedicated-server branch (P2PMODE=0).
+//
+// Flow: server mints a per-player join token by calling the EOS Voice Web API (see
+// AEOSGameSession::RequestVoiceCredentialsForPlayer), pushes it to the client over
+// Client_ReceiveVoiceCredentials, and the client runs IVoiceChat Connect -> Login -> JoinChannel.
+// Voice media flows directly between clients and EOS RTC servers; the game server never
+// handles voice data. Teardown on EndPlay: LeaveChannel -> Logout -> ReleaseUser -> Disconnect.
+// Requires `Voice:createRoomToken` enabled on the Server client in the EOS Dev Portal.
+//
+// Preferred alternative: extend the EOSVoiceChat plugin with a server-facing
+// QueryJoinRoomToken wrapper around EOS_RTCAdmin_QueryJoinRoomToken. The plugin already owns
+// the EOS platform handle and artifact config, so gameplay code wouldn't need to touch the
+// SDK or UEOSSettings at all - this whole Voice Web API scaffolding would collapse into a
+// single plugin call. Calling EOS_RTCAdmin_QueryJoinRoomToken directly from game code is
+// another option but pulls SDK headers into gameplay; the Web API keeps the game module
+// plugin-layer-only at the cost of one extra REST round trip.
+//
+// For offline/prototype use only, IVoiceChatUser::InsecureGetJoinToken +
+// [EOSVoiceChat]InsecureClientBaseUrl lets the client mint its own forgeable token. Not
+// usable against normal deployments - do not ship.
+
+#if !P2PMODE
+
+void AEOSPlayerController::Client_ReceiveVoiceCredentials_Implementation(const FString& RoomName, const FString& ParticipantToken, const FString& ClientBaseUrl)
+{
+    // This runs on the owning client of the controller. The server calls this RPC for each player
+    // after a successful createRoomToken Web API response; the args carry the signed token + media
+    // URL needed to actually join the EOS RTC room.
+
+    // Opt-in guard - the class member is the single source of truth for this session.
+    if (!bVoiceChatEnabled)
+    {
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::Client_ReceiveVoiceCredentials] Voice skipped (bVoiceChatEnabled=false)."));
+        return;
+    }
+
+    if (RoomName.IsEmpty() || ParticipantToken.IsEmpty() || ClientBaseUrl.IsEmpty())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Client_ReceiveVoiceCredentials] Server delivered incomplete voice credentials (Room='%s', Token len=%d, Url len=%d). Skipping."), *RoomName, ParticipantToken.Len(), ClientBaseUrl.Len());
+        return;
+    }
+
+    IVoiceChat* VoiceChat = IVoiceChat::Get();
+    if (!VoiceChat)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Client_ReceiveVoiceCredentials] IVoiceChat::Get() returned null - is the VoiceChat / EOSVoiceChat plugin enabled?"));
+        return;
+    }
+
+    // Cache for the async Connect -> Login -> JoinChannel chain; consumed in HandleVoiceChatLoginComplete.
+    CurrentVoiceRoomName       = RoomName;
+    CurrentVoiceToken          = ParticipantToken;
+    CurrentVoiceClientBaseUrl  = ClientBaseUrl;
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::Client_ReceiveVoiceCredentials] Received credentials for room '%s' (url host len=%d, token len=%d)."), *CurrentVoiceRoomName, CurrentVoiceClientBaseUrl.Len(), CurrentVoiceToken.Len());
+
+    // Share OSS's EOS platform with the voice plugin. Otherwise FEOSVoiceChat::Initialize tries
+    // to CreatePlatform from [EOSVoiceChat] config, which this project doesn't populate
+    // (credentials live under [/Script/OnlineSubsystemEOS.EOSSettings] artifacts instead).
+    if (!VoiceChat->IsInitialized())
+    {
+        // Type-guard the static_cast: voice fails silently if EOS isn't the active OSS, so we
+        // check the subsystem name here even though nothing else in this tutorial does.
+        IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+        IOnlineSubsystemEOS* EOSSubsystem = (Subsystem && Subsystem->GetSubsystemName() == EOS_SUBSYSTEM) ? static_cast<IOnlineSubsystemEOS*>(Subsystem) : nullptr;
+        const IEOSPlatformHandlePtr PlatformHandle = EOSSubsystem ? EOSSubsystem->GetEOSPlatformHandle() : nullptr;
+        if (PlatformHandle.IsValid())
+        {
+            static_cast<FEOSVoiceChat*>(VoiceChat)->SetPlatformHandle(PlatformHandle);
+        }
+        else
+        {
+            UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSPlayerController::Client_ReceiveVoiceCredentials] OSS EOS platform handle unavailable - voice will try to create its own platform from [EOSVoiceChat] config and likely fail."));
+        }
+        VoiceChat->Initialize();
+    }
+
+    if (VoiceChat->IsConnected())
+    {
+        // Already connected from a previous session - skip straight to the login step with a synthesized success result.
+        HandleVoiceChatConnectComplete(FVoiceChatResult::CreateSuccess());
+    }
+    else
+    {
+        VoiceChat->Connect(FOnVoiceChatConnectCompleteDelegate::CreateUObject(
+            this, &ThisClass::HandleVoiceChatConnectComplete));
+    }
+}
+
+void AEOSPlayerController::HandleVoiceChatConnectComplete(const FVoiceChatResult& Result)
+{
+    if (!Result.IsSuccess())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleVoiceChatConnectComplete] Connect failed: %s"), *Result.ErrorDesc);
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleVoiceChatConnectComplete] Connected."));
+
+    IVoiceChat* VoiceChat = IVoiceChat::Get();
+    if (!VoiceChat)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleVoiceChatConnectComplete] IVoiceChat null after connect."));
+        return;
+    }
+
+    // Resolve the player name (ProductUserId string) and PlatformUserId for the Login call.
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    FUniqueNetIdPtr LocalNetId = Identity.IsValid() ? Identity->GetUniquePlayerId(0) : nullptr;
+    if (!LocalNetId.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleVoiceChatConnectComplete] No local net id - cannot log in to voice."));
+        return;
+    }
+
+    // IVoiceChatUser::Login's PlayerName must be the bare ProductUserId; FUniqueNetId::ToString
+    // returns the composite "<EAS>|<PUID>" form which EOS RTC rejects. Type-guard the cast: the
+    // rest of this tutorial assumes EOS is the active OSS without checking; the voice path fails
+    // silently if EOS isn't active, so guard here to fail loudly instead.
+    if (LocalNetId->GetType() != EOS_SUBSYSTEM)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleVoiceChatConnectComplete] LocalNetId is not an EOS id (type=%s)."), *LocalNetId->GetType().ToString());
+        return;
+    }
+    const IUniqueNetIdEOS& EosLocalNetId = static_cast<const IUniqueNetIdEOS&>(*LocalNetId);
+    const FString VoicePlayerName = LexToString(EosLocalNetId.GetProductUserId());
+
+    // Allocate the IVoiceChatUser only after the identity guard succeeds, so a failed lookup
+    // doesn't leave an unused user pending for the LeaveVoiceChat chain to release.
+    if (!VoiceChatUser)
+    {
+        VoiceChatUser = VoiceChat->CreateUser();
+    }
+    if (!VoiceChatUser)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleVoiceChatConnectComplete] CreateUser returned null."));
+        return;
+    }
+
+    ULocalPlayer* LocalPlayer = GetLocalPlayer();
+    const FPlatformUserId PlatformUser = LocalPlayer ? LocalPlayer->GetPlatformUserId() : PLATFORMUSERID_NONE;
+
+    VoiceChatUser->Login(PlatformUser, VoicePlayerName, TEXT(""),
+        FOnVoiceChatLoginCompleteDelegate::CreateUObject(this, &ThisClass::HandleVoiceChatLoginComplete));
+}
+
+void AEOSPlayerController::HandleVoiceChatLoginComplete(const FString& InPlayerName, const FVoiceChatResult& Result)
+{
+    if (!Result.IsSuccess())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleVoiceChatLoginComplete] Login failed for %s: %s"), *InPlayerName, *Result.ErrorDesc);
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleVoiceChatLoginComplete] Logged in as %s."), *InPlayerName);
+
+    if (!VoiceChatUser)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleVoiceChatLoginComplete] VoiceChatUser null - cannot join channel."));
+        return;
+    }
+
+    // JoinChannel's ChannelCredentials arg is the FEOSVoiceChatChannelCredentials JSON blob.
+    FEOSVoiceChatChannelCredentials Credentials;
+    Credentials.ClientBaseUrl    = CurrentVoiceClientBaseUrl;
+    Credentials.ParticipantToken = CurrentVoiceToken;
+    const FString CredentialsJson = Credentials.ToJson(/*bPretty*/ false);
+
+    VoiceChatUser->JoinChannel(
+        CurrentVoiceRoomName,
+        CredentialsJson,
+        EVoiceChatChannelType::NonPositional,
+        FOnVoiceChatChannelJoinCompleteDelegate::CreateUObject(this, &ThisClass::HandleVoiceChatJoinChannelComplete));
+}
+
+void AEOSPlayerController::HandleVoiceChatJoinChannelComplete(const FString& ChannelName, const FVoiceChatResult& Result)
+{
+    if (Result.IsSuccess())
+    {
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleVoiceChatJoinChannelComplete] Joined channel %s."), *ChannelName);
+    }
+    else
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleVoiceChatJoinChannelComplete] Join channel %s failed: %s"), *ChannelName, *Result.ErrorDesc);
+    }
+}
+
+void AEOSPlayerController::LeaveVoiceChat()
+{
+    IVoiceChat* VoiceChat = IVoiceChat::Get();
+    if (!VoiceChat)
+    {
+        return;
+    }
+
+    // Chain LeaveChannel -> Logout -> ReleaseUser -> Disconnect via completion callbacks. Firing
+    // them in parallel races the plugin's state machine - Disconnect clears login state before
+    // the RTC LeaveRoom reply lands, tripping an assertion in EOSVoiceChatUser::OnLeaveRoom.
+    // Lambdas capture plugin singletons by value only, never `this` - the controller may be
+    // destroyed before the chain finishes.
+    IVoiceChatUser* const LocalUser   = VoiceChatUser;
+    const FString         RoomToLeave = CurrentVoiceRoomName;
+    VoiceChatUser = nullptr;
+    CurrentVoiceRoomName.Empty();
+    CurrentVoiceToken.Empty();
+    CurrentVoiceClientBaseUrl.Empty();
+
+    auto DisconnectStep = [VoiceChat]()
+    {
+        if (VoiceChat->IsConnected())
+        {
+            VoiceChat->Disconnect(FOnVoiceChatDisconnectCompleteDelegate::CreateLambda(
+                [](const FVoiceChatResult& Result)
+                {
+                    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::LeaveVoiceChat] Disconnect: %s"), Result.IsSuccess() ? TEXT("OK") : *Result.ErrorDesc);
+                }));
+        }
+    };
+
+    auto LogoutAndReleaseStep = [VoiceChat, LocalUser, DisconnectStep]()
+    {
+        if (LocalUser)
+        {
+            LocalUser->Logout(FOnVoiceChatLogoutCompleteDelegate::CreateLambda(
+                [VoiceChat, LocalUser, DisconnectStep](const FString& PlayerName, const FVoiceChatResult& Result)
+                {
+                    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::LeaveVoiceChat] Logout %s: %s"), *PlayerName, Result.IsSuccess() ? TEXT("OK") : *Result.ErrorDesc);
+                    // ReleaseUser is safe to call synchronously here - Logout has fully drained the
+                    // login-state machine by the time this callback fires.
+                    VoiceChat->ReleaseUser(LocalUser);
+                    DisconnectStep();
+                }));
+        }
+        else
+        {
+            DisconnectStep();
+        }
+    };
+
+    if (LocalUser && !RoomToLeave.IsEmpty())
+    {
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::LeaveVoiceChat] Leaving channel %s."), *RoomToLeave);
+        LocalUser->LeaveChannel(RoomToLeave,
+            FOnVoiceChatChannelLeaveCompleteDelegate::CreateLambda(
+                [LogoutAndReleaseStep](const FString& LeftChannel, const FVoiceChatResult& Result)
+                {
+                    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::LeaveVoiceChat] Channel %s left: %s"), *LeftChannel, Result.IsSuccess() ? TEXT("OK") : *Result.ErrorDesc);
+                    LogoutAndReleaseStep();
+                }));
+    }
+    else
+    {
+        LogoutAndReleaseStep();
+    }
+
+    // Note: do NOT call VoiceChat->Uninitialize() - IVoiceChat is a process-wide singleton
+    // shared with any other voice user in the game. Leave it initialized.
+}
+
+#endif // !P2PMODE
+
 // Tutorial 7: This code will only be included if P2PMode is enabled.
 
 #if P2PMODE
+
+// Empty stub - the P2P branch uses lobby-managed voice and never receives this RPC, but UHT
+// still generates dispatch code for the UFUNCTION so the symbol must exist.
+void AEOSPlayerController::Client_ReceiveVoiceCredentials_Implementation(const FString& RoomName, const FString& ParticipantToken, const FString& ClientBaseUrl)
+{
+}
 
 void AEOSPlayerController::CreateLobby(FName KeyName, FString KeyValue)
 {
