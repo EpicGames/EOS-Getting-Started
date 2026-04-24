@@ -17,3 +17,29 @@ Saved
 *.suo
 *.xcodeproj
 *.xcworkspace
+
+# EOS Anti-Cheat tooling: extracted per-developer from the engine's bundled
+# AntiCheatTools zip. Contents are EAC binaries we must not redistribute.
+# The directory stays checked in (via .gitkeep); the contents are gitignored.
+/OnlineSubsystemEOS/Plugins/EOSAntiCheat/Tools/*
+!/OnlineSubsystemEOS/Plugins/EOSAntiCheat/Tools/.gitkeep
+
+# Per-developer platform config overrides. Unlike Restricted/NoRedist/Config
+# (which is a runtime-only overlay, not cooked into packaged builds), files
+# under Config/<Platform>/ ARE staged. Drop real EOS artifact credentials
+# here so packaged Win64 builds can authenticate.
+/OnlineSubsystemEOS/Config/Windows/*
+!/OnlineSubsystemEOS/Config/Windows/.gitkeep
+
+# UAT automation build output + UE-generated cooker logs under Build/.
+# The source .cs/.csproj files stay checked in.
+/OnlineSubsystemEOS/Build/Scripts/Automation/obj/
+/OnlineSubsystemEOS/Build/Scripts/Automation/bin/
+/OnlineSubsystemEOS/Build/*/FileOpenOrder/
+
+# Packaged builds land here during Tutorial 9 testing; never commit them.
+/OnlineSubsystemEOS/Packaged/
+
+# Scratch diffs from earlier local experiments; not part of the tutorial.
+/OnlineSubsystemEOS/voice-chat.diff
+/OnlineSubsystemEOS/voice-chat-noredist.diff

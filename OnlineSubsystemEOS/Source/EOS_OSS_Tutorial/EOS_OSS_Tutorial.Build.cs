@@ -14,7 +14,7 @@ public class EOS_OSS_Tutorial : ModuleRules
         //   - VoiceChat + EOSVoiceChat: the IVoiceChat abstraction and its EOS RTC implementation.
         //   - EOSShared: EOS platform-handle access and EOS SDK string helpers.
         //   - HTTP + Json: REST + JSON for the dedicated server's Voice Web API calls.
-        PrivateDependencyModuleNames.AddRange(new string[] { "VoiceChat", "EOSVoiceChat", "EOSShared", "HTTP", "Json" });
+        PrivateDependencyModuleNames.AddRange(new string[] { "VoiceChat", "EOSVoiceChat", "EOSShared", "HTTP", "Json", "EOSAntiCheat" });
 
         // Tutorial 7: This will set the game to be in P2P mode instead of dedicated server.
         PrivateDefinitions.Add("P2PMODE=0");

@@ -23,6 +23,13 @@
 #include "OnlineSubsystemEOSTypesPublic.h"  // IUniqueNetIdEOS - exposes GetProductUserId() on OSS-produced FUniqueNetIds.
 #include "EOSShared.h"                       // LexToString(EOS_ProductUserId) - formats the PUID as the string IVoiceChatUser::Login wants.
 #include "Engine/LocalPlayer.h"              // ULocalPlayer::GetPlatformUserId() for the voice Login() call.
+
+// Tutorial 9 (anti-cheat client):
+#include "IEOSAntiCheat.h"
+#include "IEOSAntiCheatClient.h"
+#include "IEOSAntiCheatServer.h"             // Server-side RPC impl feeds bytes back via IEOSAntiCheatServer.
+#include "EOSGameSession.h"                  // AEOSGameSession::RegisterAntiCheatClient - server-side RPC landing spot.
+#include "GameFramework/PlayerState.h"       // APlayerState::GetUniqueId() - complete type required for the server-side RPC impls.
 #endif
 
 DEFINE_LOG_CATEGORY(LogEOSOSSTutorial);
@@ -42,6 +49,28 @@ void AEOSPlayerController::BeginPlay()
     {
         Login(); // Call login function only on the client.
     }
+
+#if !P2PMODE
+    if (IsLocalController())
+    {
+        // Tutorial 9: Rebind the AC SDK's OnMessageToServer delegate to this live
+        // PC (the pre-travel bind from HandleLoginCompleted is now stale). BeginSession is idempotent.
+        BeginAntiCheatClientSession();
+
+        // Tutorial 9: Ready signal with signed IdToken for server-side verify.
+        IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+        IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+        IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+        FUniqueNetIdPtr LocalNetId = Identity.IsValid() ? Identity->GetUniquePlayerId(0) : nullptr;
+
+        FString IdTokenJwt;
+        if (AntiCheat && LocalNetId.IsValid())
+        {
+            AntiCheat->CopyLocalIdToken(LocalNetId.ToSharedRef(), IdTokenJwt);
+        }
+        Server_NotifyAntiCheatReady(IdTokenJwt);
+    }
+#endif
 }
 
 void AEOSPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -50,6 +79,8 @@ void AEOSPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
     // Tutorial 8: Kick off voice teardown before clearing OSS delegates. Runs async - the chain
     // continues after EndPlay returns.
     LeaveVoiceChat();
+
+    // Tutorial 9: AC session is plugin-scoped and shuts down with the module, not here.
 #endif
 
     // Clear every delegate handle this controller bound on the OSS interfaces. Without this the OSS
@@ -240,6 +271,11 @@ void AEOSPlayerController::HandleLoginCompleted(int32 LocalUserNum, bool bWasSuc
         LoadTitleData();  // Load any game-related data (in this case a string output to logs).
         LoadPlayerData(); // Load save-game data.
         FindSessions();   // For convenience a session is found in sequence here. In a real game this would be done via game UI. Goal here is to show EOS functionality, not game design.
+
+#if !P2PMODE
+        // Tutorial 9: Login succeeded so the NetId is ready - start the AC session.
+        BeginAntiCheatClientSession();
+#endif
     }
     else
     {
@@ -1038,6 +1074,132 @@ void AEOSPlayerController::LeaveVoiceChat()
     // shared with any other voice user in the game. Leave it initialized.
 }
 
+// ----------------------------------------------------------------------------------------------
+// Tutorial 9: Client-side anti-cheat glue (dedicated-server branch).
+// ----------------------------------------------------------------------------------------------
+
+void AEOSPlayerController::BeginAntiCheatClientSession()
+{
+    IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+    IEOSAntiCheatClient* Client = AntiCheat ? AntiCheat->GetClient() : nullptr;
+    if (!Client)
+    {
+        // Verbose, not Warning: in Editor builds this is expected (the plugin logs the
+        // reason once at startup). If it fires in a packaged build that's a real issue,
+        // but the per-BeginPlay spam would drown useful logs - bump verbosity if you need it.
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::BeginAntiCheatClientSession] AntiCheat client interface unavailable."));
+        return;
+    }
+
+    // Resolve the local player's PUID for the SDK's BeginSession call.
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    FUniqueNetIdPtr LocalNetId = Identity.IsValid() ? Identity->GetUniquePlayerId(0) : nullptr;
+    if (!LocalNetId.IsValid())
+    {
+        // Expected when called from the first BeginPlay (login is async, NetId not ready yet).
+        // The post-login call from HandleLoginCompleted hits this path with a valid NetId.
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::BeginAntiCheatClientSession] Skipping: no local net id yet (expected pre-login)."));
+        return;
+    }
+
+    AntiCheatMessageToServerHandle = Client->OnMessageToServer().AddUObject(this, &ThisClass::HandleAntiCheatMessageToServer);
+    Client->BeginSession(IEOSAntiCheatClient::EMode::ClientServer, LocalNetId.ToSharedRef());
+}
+
+void AEOSPlayerController::EndAntiCheatClientSession()
+{
+    IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+    IEOSAntiCheatClient* Client = AntiCheat ? AntiCheat->GetClient() : nullptr;
+    if (!Client)
+    {
+        return;
+    }
+
+    Client->OnMessageToServer().Remove(AntiCheatMessageToServerHandle);
+    AntiCheatMessageToServerHandle.Reset();
+    Client->EndSession();
+}
+
+void AEOSPlayerController::HandleAntiCheatMessageToServer(const TArray<uint8>& Bytes)
+{
+    Server_AntiCheatMessage(Bytes);
+}
+
+void AEOSPlayerController::Server_NotifyAntiCheatReady_Implementation(const FString& IdTokenJwt)
+{
+    // Tutorial 9: Verify the client's JWT before trusting the PUID for RegisterClient.
+    if (!PlayerState) { return; }
+    FUniqueNetIdPtr ClaimedNetIdPtr = PlayerState->GetUniqueId().GetUniqueNetId();
+    if (!ClaimedNetIdPtr.IsValid()) { return; }
+    const FUniqueNetIdRef ClaimedNetId = ClaimedNetIdPtr.ToSharedRef();
+
+    IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+    if (!AntiCheat)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Server_NotifyAntiCheatReady] AntiCheat plugin unavailable."));
+        return;
+    }
+
+    TWeakObjectPtr<AEOSPlayerController> WeakThis(this);
+    AntiCheat->VerifyIdToken(ClaimedNetId, IdTokenJwt, IEOSAntiCheat::FOnIdTokenVerified::CreateLambda(
+        [WeakThis, ClaimedNetId](bool bVerifySucceeded)
+        {
+            AEOSPlayerController* PC = WeakThis.Get();
+            if (!PC) { return; }
+
+            AGameModeBase* GM = PC->GetWorld() ? PC->GetWorld()->GetAuthGameMode() : nullptr;
+            AGameSession* GS = GM ? GM->GameSession : nullptr;
+            if (!GS) { return; }
+
+            if (!bVerifySucceeded)
+            {
+                UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Server_NotifyAntiCheatReady] IdToken verify failed for %s - kicking."), *ClaimedNetId->ToString());
+                GS->KickPlayer(PC, FText::FromString(TEXT("AntiCheat: IdToken verify failed")));
+                return;
+            }
+
+            // Verified - register with AntiCheat.
+            if (AEOSGameSession* EosGS = Cast<AEOSGameSession>(GS))
+            {
+                EosGS->RegisterAntiCheatClient(ClaimedNetId);
+            }
+        }));
+}
+
+void AEOSPlayerController::Server_AntiCheatMessage_Implementation(const TArray<uint8>& Bytes)
+{
+    // Runs on the server. Feed the bytes back into the server's AntiCheat SDK.
+    if (!PlayerState)
+    {
+        return;
+    }
+    const FUniqueNetIdRepl& NetIdRepl = PlayerState->GetUniqueId();
+    FUniqueNetIdPtr NetIdPtr = NetIdRepl.GetUniqueNetId();
+    if (!NetIdPtr.IsValid())
+    {
+        return;
+    }
+
+    IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+    IEOSAntiCheatServer* Server = AntiCheat ? AntiCheat->GetServer() : nullptr;
+    if (Server)
+    {
+        Server->ReceiveMessageFromClient(NetIdPtr.ToSharedRef(), Bytes);
+    }
+}
+
+void AEOSPlayerController::Client_AntiCheatMessage_Implementation(const TArray<uint8>& Bytes)
+{
+    // Runs on the owning client. Feed the bytes into the local AntiCheat SDK.
+    IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+    IEOSAntiCheatClient* Client = AntiCheat ? AntiCheat->GetClient() : nullptr;
+    if (Client)
+    {
+        Client->ReceiveMessageFromServer(Bytes);
+    }
+}
+
 #endif // !P2PMODE
 
 // Tutorial 7: This code will only be included if P2PMode is enabled.
@@ -1047,6 +1209,20 @@ void AEOSPlayerController::LeaveVoiceChat()
 // Empty stub - the P2P branch uses lobby-managed voice and never receives this RPC, but UHT
 // still generates dispatch code for the UFUNCTION so the symbol must exist.
 void AEOSPlayerController::Client_ReceiveVoiceCredentials_Implementation(const FString& RoomName, const FString& ParticipantToken, const FString& ClientBaseUrl)
+{
+}
+
+// Tutorial 9: P2PMODE stubs for the server-architecture AntiCheat RPCs. Dedicated-server
+// AntiCheat is off in P2P mode; the P2P-specific peer flow lands in a later commit.
+void AEOSPlayerController::Server_NotifyAntiCheatReady_Implementation(const FString& IdTokenJwt)
+{
+}
+
+void AEOSPlayerController::Server_AntiCheatMessage_Implementation(const TArray<uint8>& Bytes)
+{
+}
+
+void AEOSPlayerController::Client_AntiCheatMessage_Implementation(const TArray<uint8>& Bytes)
 {
 }
 

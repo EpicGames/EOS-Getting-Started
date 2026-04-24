@@ -1,0 +1,36 @@
+{
+	"FileVersion": 3,
+
+	"FriendlyName": "EOS Anti-Cheat",
+	"Version": 1,
+	"VersionName": "1.0",
+	"Description": "EOS Anti-Cheat integration for the OnlineSubsystemEOS tutorial. Shares the EOS_HPlatform from OnlineSubsystemEOS rather than creating its own.",
+	"Category": "Online Platform",
+	"CreatedBy": "Epic Games, Inc.",
+	"CreatedByURL": "https://epicgames.com",
+	"EnabledByDefault": false,
+
+	"Modules": [
+		{
+			"Name": "EOSAntiCheat",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Linux",
+				"Mac",
+				"Win64"
+			]
+		}
+	],
+
+	"Plugins": [
+		{
+			"Name": "OnlineSubsystemEOS",
+			"Enabled": true
+		},
+		{
+			"Name": "EOSShared",
+			"Enabled": true
+		}
+	]
+}

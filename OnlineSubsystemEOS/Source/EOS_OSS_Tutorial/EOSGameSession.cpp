@@ -24,6 +24,12 @@
 #include "Dom/JsonObject.h"                    // FJsonObject - parse EOS's responses.
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+
+// Tutorial 9 (server-side anti-cheat): plugin interfaces are included here because
+// BeginPlay/EndPlay wire the lifecycle, NotifyLogout unregisters, and the OnViolation
+// delegate drives the kick.
+#include "IEOSAntiCheat.h"
+#include "IEOSAntiCheatServer.h"
 #endif
 
 
@@ -72,6 +78,25 @@ void AEOSGameSession::BeginPlay()
     {
         CreateSession("KeyName", "KeyValue"); // Should parametrize Key/Value pair for custom attribute
     }
+
+#if !P2PMODE
+    // Tutorial 9: Spin up the AntiCheat server session so it's ready before any
+    // players attempt to register. Wire the violation and message-to-client
+    // delegates here; we tear them down in EndPlay.
+    if (IsRunningDedicatedServer())
+    {
+        if (IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get())
+        {
+            AntiCheatViolationDelegateHandle = AntiCheat->OnViolation().AddUObject(this, &ThisClass::HandleAntiCheatViolation);
+
+            if (IEOSAntiCheatServer* Server = AntiCheat->GetServer())
+            {
+                AntiCheatMessageToClientDelegateHandle = Server->OnMessageToClient().AddUObject(this, &ThisClass::HandleAntiCheatMessageToClient);
+                Server->BeginSession();
+            }
+        }
+    }
+#endif
 }
 
 void AEOSGameSession::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -79,6 +104,27 @@ void AEOSGameSession::EndPlay(const EEndPlayReason::Type EndPlayReason)
     // Tutorial 3: Override base function to destroy session at end of play. Only the dedicated server
     // owns a session (clients join but don't create one here), so skip DestroySession on clients to
     // avoid the spurious failure log that would otherwise fire on every clean client exit.
+#if !P2PMODE
+    // Tutorial 9: Tear down AntiCheat before OSS shutdown. Order matches voice:
+    // plugin-level teardown first, then OSS. Delegate unbinds are unconditional
+    // so stale bindings never outlive this actor.
+    if (IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get())
+    {
+        AntiCheat->OnViolation().Remove(AntiCheatViolationDelegateHandle);
+        AntiCheatViolationDelegateHandle.Reset();
+
+        if (IEOSAntiCheatServer* Server = AntiCheat->GetServer())
+        {
+            Server->OnMessageToClient().Remove(AntiCheatMessageToClientDelegateHandle);
+            AntiCheatMessageToClientDelegateHandle.Reset();
+
+            if (IsRunningDedicatedServer())
+            {
+                Server->EndSession();
+            }
+        }
+    }
+#endif
     Super::EndPlay(EndPlayReason);
     if (bSessionExists)
     {
@@ -97,6 +143,26 @@ void AEOSGameSession::PostLogin(APlayerController* NewPlayer)
 void AEOSGameSession::NotifyLogout(const APlayerController* ExitingPlayer)
 {
     // Tutorial 3: Override base function to handle players leaving EOS Session.
+#if !P2PMODE
+    // Tutorial 9: Unregister from AntiCheat before OSS unregister so the SDK
+    // doesn't continue heartbeating a player that's already gone. Safe to call
+    // unconditionally - the plugin no-ops on unknown PUIDs.
+    if (IsRunningDedicatedServer() && ExitingPlayer && ExitingPlayer->PlayerState)
+    {
+        const FUniqueNetIdRepl& ExitingNetId = ExitingPlayer->PlayerState->GetUniqueId();
+        FUniqueNetIdPtr ExitingNetIdPtr = ExitingNetId.GetUniqueNetId();
+        if (ExitingNetIdPtr.IsValid())
+        {
+            if (IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get())
+            {
+                if (IEOSAntiCheatServer* Server = AntiCheat->GetServer())
+                {
+                    Server->UnregisterClient(ExitingNetIdPtr.ToSharedRef());
+                }
+            }
+        }
+    }
+#endif
     Super::NotifyLogout(ExitingPlayer); // This calls UnregisterPlayer
 
     // When players leave the dedicated server we need to check how many players are left. If 0 players are left,
@@ -671,5 +737,49 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
         });
 
     AuthReq->ProcessRequest();
+}
+
+// ----------------------------------------------------------------------------------------------
+// Tutorial 9: Server-side anti-cheat glue.
+// ----------------------------------------------------------------------------------------------
+
+void AEOSGameSession::RegisterAntiCheatClient(const FUniqueNetIdRef& PlayerId)
+{
+    if (!IsRunningDedicatedServer())
+    {
+        return;
+    }
+
+    if (IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get())
+    {
+        if (IEOSAntiCheatServer* Server = AntiCheat->GetServer())
+        {
+            Server->RegisterClient(PlayerId);
+        }
+    }
+}
+
+void AEOSGameSession::HandleAntiCheatViolation(const FUniqueNetIdRef& PlayerId, const FString& Reason)
+{
+    AEOSPlayerController* PC = FindPlayerControllerByNetId(PlayerId);
+    if (!PC)
+    {
+        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSGameSession::HandleAntiCheatViolation] No PlayerController for flagged PlayerId=%s - cannot kick."), *PlayerId->ToString());
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::HandleAntiCheatViolation] Kicking %s: %s"), *PC->GetName(), *Reason);
+    KickPlayer(PC, FText::FromString(Reason));
+}
+
+void AEOSGameSession::HandleAntiCheatMessageToClient(const FUniqueNetIdRef& PlayerId, const TArray<uint8>& Bytes)
+{
+    AEOSPlayerController* PC = FindPlayerControllerByNetId(PlayerId);
+    if (!PC)
+    {
+        // Player may have disconnected between when the SDK queued the message and now.
+        return;
+    }
+    PC->Client_AntiCheatMessage(Bytes);
 }
 #endif // !P2PMODE

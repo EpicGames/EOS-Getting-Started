@@ -36,6 +36,10 @@
 		{
 			"Name": "EOSShared",
 			"Enabled": true
+		},
+		{
+			"Name": "EOSAntiCheat",
+			"Enabled": true
 		}
 	]
 }

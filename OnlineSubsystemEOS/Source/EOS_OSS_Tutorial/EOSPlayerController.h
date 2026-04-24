@@ -134,6 +134,19 @@ public:
 	UFUNCTION(Client, Reliable)
 	void Client_ReceiveVoiceCredentials(const FString& RoomName, const FString& ParticipantToken, const FString& ClientBaseUrl);
 
+	// Tutorial 9: Client -> server RPC firing once the client has finished loading. Carries the
+	// client's EOS Connect IdToken JWT so the server can VerifyIdToken before trusting the PUID
+	// it's about to register with AntiCheat. Declared outside P2PMODE per UHT.
+	UFUNCTION(Server, Reliable)
+	void Server_NotifyAntiCheatReady(const FString& IdTokenJwt);
+
+	// Tutorial 9: Bidirectional relay for opaque EOS AntiCheat SDK bytes over Unreal RPCs.
+	UFUNCTION(Server, Reliable)
+	void Server_AntiCheatMessage(const TArray<uint8>& Bytes);
+
+	UFUNCTION(Client, Reliable)
+	void Client_AntiCheatMessage(const TArray<uint8>& Bytes);
+
 #if !P2PMODE
 protected:
 	// Per-session voice-chat opt-in. Checked when the server-issued credentials RPC arrives.
@@ -154,6 +167,15 @@ protected:
 	FString CurrentVoiceRoomName;
 	FString CurrentVoiceToken;
 	FString CurrentVoiceClientBaseUrl;
+
+	// Tutorial 9 (anti-cheat client):
+	// Start/stop the plugin's client-side AntiCheat session. Only runs on the local controller.
+	void BeginAntiCheatClientSession();
+	void EndAntiCheatClientSession();
+
+	// Bound to IEOSAntiCheatClient::OnMessageToServer; forwards bytes to the server via Server_AntiCheatMessage.
+	void HandleAntiCheatMessageToServer(const TArray<uint8>& Bytes);
+	FDelegateHandle AntiCheatMessageToServerHandle;
 #endif
 
 #if P2PMODE

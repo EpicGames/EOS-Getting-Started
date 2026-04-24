@@ -113,5 +113,22 @@ protected:
 
 	// Finds the AEOSPlayerController whose PlayerState owns the supplied FUniqueNetId.
 	class AEOSPlayerController* FindPlayerControllerByNetId(const FUniqueNetIdRef& PlayerId) const;
+
+	// Tutorial 9: Bound to IEOSAntiCheat::OnViolation. Kicks the offending player via AGameSession::KickPlayer.
+	void HandleAntiCheatViolation(const FUniqueNetIdRef& PlayerId, const FString& Reason);
+
+	// Tutorial 9: Bound to IEOSAntiCheatServer::OnMessageToClient. Forwards the opaque bytes
+	// to the owning AEOSPlayerController via its Client_AntiCheatMessage reliable RPC.
+	void HandleAntiCheatMessageToClient(const FUniqueNetIdRef& PlayerId, const TArray<uint8>& Bytes);
+
+	FDelegateHandle AntiCheatViolationDelegateHandle;
+	FDelegateHandle AntiCheatMessageToClientDelegateHandle;
+
+public:
+	// Tutorial 9: Called from AEOSPlayerController's Server_NotifyAntiCheatReady RPC once the
+	// client has finished loading. Registers the player with the AntiCheat server at that point
+	// (not before - see the IEOSAntiCheatServer::RegisterClient comment for the heartbeat
+	// timeout that kicks in if we register while the client is still blocked).
+	void RegisterAntiCheatClient(const FUniqueNetIdRef& PlayerId);
 #endif
 };
