@@ -3,7 +3,7 @@
 #pragma once
 
 #include "IEOSAntiCheatServer.h"
-#include "EOSAntiCheatDelegates.h"
+#include "IEOSAntiCheat.h"  // FOnAntiCheatViolation
 
 // Private header so it's fine to pull the SDK umbrella - the public
 // IEOSAntiCheatServer surface stays SDK-free.

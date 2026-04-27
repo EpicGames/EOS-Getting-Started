@@ -1,8 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "IEOSAntiCheat.h"
-#include "EOSAntiCheatLog.h"
-#include "EOSAntiCheatDelegates.h"
 #include "EOSAntiCheatServer.h"
 #include "EOSAntiCheatClient.h"
 

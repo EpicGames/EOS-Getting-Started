@@ -3,11 +3,32 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Logging/LogMacros.h"
 #include "Modules/ModuleInterface.h"
-#include "EOSAntiCheatDelegates.h"
+#include "Online/CoreOnline.h"
 
 class IEOSAntiCheatServer;
 class IEOSAntiCheatClient;
+
+/**
+ * Log category for this plugin's own output. Separate from the EOS SDK's
+ * LogEOSSDK / LogEOSAntiCheat* categories so plugin-level events (BeginSession,
+ * Register, kick dispatch, violation delegates) are easy to filter without SDK
+ * noise. Bump verbosity with `log LogEOSAntiCheatPlugin Verbose` (or
+ * `VeryVerbose` for message byte dumps in non-Shipping builds).
+ */
+DECLARE_LOG_CATEGORY_EXTERN(LogEOSAntiCheatPlugin, Log, All);
+
+/**
+ * Broadcast when the server-side AntiCheat interface reports a player has been
+ * flagged and kicked. Subscribers can surface UI, record telemetry, or trigger
+ * additional game-level responses. Runs on the game thread.
+ *
+ * Parameters:
+ *   - PlayerId:   the offending player's FUniqueNetIdRef (EOS ProductUserId wrapped).
+ *   - Reason:     short human-readable string from the SDK's action/status enum.
+ */
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnAntiCheatViolation, const FUniqueNetIdRef& /*PlayerId*/, const FString& /*Reason*/);
 
 /**
  * Module-level singleton that owns the plugin's server-side and client-side
@@ -41,7 +62,7 @@ public:
 
 	/**
 	 * Fires on the game thread when the server-side AntiCheat interface flags
-	 * and kicks a player. See EOSAntiCheatDelegates.h for the payload.
+	 * and kicks a player. See FOnAntiCheatViolation above for the payload.
 	 */
 	virtual FOnAntiCheatViolation& OnViolation() = 0;
 

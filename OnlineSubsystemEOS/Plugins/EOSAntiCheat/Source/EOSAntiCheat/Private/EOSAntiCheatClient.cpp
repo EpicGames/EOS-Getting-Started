@@ -1,7 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "EOSAntiCheatClient.h"
-#include "EOSAntiCheatLog.h"
+#include "IEOSAntiCheat.h"
 
 #include "OnlineSubsystemEOSTypesPublic.h"  // IUniqueNetIdEOS - read ProductUserId for LocalUser.
 #include "EOSShared.h"                       // LexToString(EOS_ProductUserId).
