@@ -132,7 +132,7 @@ void FEOSAntiCheatClient::ReceiveMessageFromServer(TConstArrayView<uint8> Messag
 #endif
 }
 
-/* static */ void EOS_CALL FEOSAntiCheatClient::OnMessageToServerStatic(const EOS_AntiCheatClient_OnMessageToServerCallbackInfo* Data)
+void EOS_CALL FEOSAntiCheatClient::OnMessageToServerStatic(const EOS_AntiCheatClient_OnMessageToServerCallbackInfo* Data)
 {
 	if (Data && Data->ClientData)
 	{
@@ -140,7 +140,7 @@ void FEOSAntiCheatClient::ReceiveMessageFromServer(TConstArrayView<uint8> Messag
 	}
 }
 
-/* static */ void EOS_CALL FEOSAntiCheatClient::OnClientIntegrityViolatedStatic(const EOS_AntiCheatClient_OnClientIntegrityViolatedCallbackInfo* Data)
+void EOS_CALL FEOSAntiCheatClient::OnClientIntegrityViolatedStatic(const EOS_AntiCheatClient_OnClientIntegrityViolatedCallbackInfo* Data)
 {
 	if (Data && Data->ClientData)
 	{

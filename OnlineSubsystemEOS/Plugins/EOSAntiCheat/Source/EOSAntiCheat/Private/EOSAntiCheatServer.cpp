@@ -237,7 +237,7 @@ void FEOSAntiCheatServer::ReceiveMessageFromClient(const FUniqueNetIdRef& Player
 #endif
 }
 
-/* static */ void EOS_CALL FEOSAntiCheatServer::OnMessageToClientStatic(const EOS_AntiCheatCommon_OnMessageToClientCallbackInfo* Data)
+void EOS_CALL FEOSAntiCheatServer::OnMessageToClientStatic(const EOS_AntiCheatCommon_OnMessageToClientCallbackInfo* Data)
 {
 	if (Data && Data->ClientData)
 	{
@@ -245,7 +245,7 @@ void FEOSAntiCheatServer::ReceiveMessageFromClient(const FUniqueNetIdRef& Player
 	}
 }
 
-/* static */ void EOS_CALL FEOSAntiCheatServer::OnClientActionRequiredStatic(const EOS_AntiCheatCommon_OnClientActionRequiredCallbackInfo* Data)
+void EOS_CALL FEOSAntiCheatServer::OnClientActionRequiredStatic(const EOS_AntiCheatCommon_OnClientActionRequiredCallbackInfo* Data)
 {
 	if (Data && Data->ClientData)
 	{
@@ -253,7 +253,7 @@ void FEOSAntiCheatServer::ReceiveMessageFromClient(const FUniqueNetIdRef& Player
 	}
 }
 
-/* static */ void EOS_CALL FEOSAntiCheatServer::OnClientAuthStatusChangedStatic(const EOS_AntiCheatCommon_OnClientAuthStatusChangedCallbackInfo* Data)
+void EOS_CALL FEOSAntiCheatServer::OnClientAuthStatusChangedStatic(const EOS_AntiCheatCommon_OnClientAuthStatusChangedCallbackInfo* Data)
 {
 	if (Data && Data->ClientData)
 	{

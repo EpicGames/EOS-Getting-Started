@@ -200,7 +200,7 @@ void FEOSAntiCheat::VerifyIdToken(const FUniqueNetIdRef& ClaimedUser, const FStr
 }
 
 #if !WITH_EDITOR
-/* static */ void EOS_CALL FEOSAntiCheat::OnVerifyIdTokenStatic(const EOS_Connect_VerifyIdTokenCallbackInfo* Data)
+void EOS_CALL FEOSAntiCheat::OnVerifyIdTokenStatic(const EOS_Connect_VerifyIdTokenCallbackInfo* Data)
 {
 	if (!Data) { return; }
 	TUniquePtr<FPendingIdTokenVerify> Pending(static_cast<FPendingIdTokenVerify*>(Data->ClientData));
