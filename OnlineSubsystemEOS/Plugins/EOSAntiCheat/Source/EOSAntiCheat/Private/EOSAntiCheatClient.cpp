@@ -15,6 +15,21 @@ FEOSAntiCheatClient::FEOSAntiCheatClient(EOS_HPlatform InPlatform)
 	if (!Handle)
 	{
 		UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheatClient] EOS_Platform_GetAntiCheatClientInterface returned null - expected when the game wasn't launched via start_protected_game.exe."));
+		return;
+	}
+
+	// Notification IDs are interface-handle scoped, not session scoped - bind
+	// once at construction so the SDK has handlers wired the moment any
+	// callback could fire. Handlers gate on bSessionActive where appropriate.
+	{
+		EOS_AntiCheatClient_AddNotifyMessageToServerOptions Opts = {};
+		Opts.ApiVersion = EOS_ANTICHEATCLIENT_ADDNOTIFYMESSAGETOSERVER_API_LATEST;
+		MessageToServerNotifyId = EOS_AntiCheatClient_AddNotifyMessageToServer(Handle, &Opts, this, &FEOSAntiCheatClient::OnMessageToServerStatic);
+	}
+	{
+		EOS_AntiCheatClient_AddNotifyClientIntegrityViolatedOptions Opts = {};
+		Opts.ApiVersion = EOS_ANTICHEATCLIENT_ADDNOTIFYCLIENTINTEGRITYVIOLATED_API_LATEST;
+		ClientIntegrityViolatedNotifyId = EOS_AntiCheatClient_AddNotifyClientIntegrityViolated(Handle, &Opts, this, &FEOSAntiCheatClient::OnClientIntegrityViolatedStatic);
 	}
 }
 
@@ -23,6 +38,20 @@ FEOSAntiCheatClient::~FEOSAntiCheatClient()
 	if (bSessionActive)
 	{
 		EndSession();
+	}
+
+	if (Handle)
+	{
+		if (MessageToServerNotifyId != EOS_INVALID_NOTIFICATIONID)
+		{
+			EOS_AntiCheatClient_RemoveNotifyMessageToServer(Handle, MessageToServerNotifyId);
+			MessageToServerNotifyId = EOS_INVALID_NOTIFICATIONID;
+		}
+		if (ClientIntegrityViolatedNotifyId != EOS_INVALID_NOTIFICATIONID)
+		{
+			EOS_AntiCheatClient_RemoveNotifyClientIntegrityViolated(Handle, ClientIntegrityViolatedNotifyId);
+			ClientIntegrityViolatedNotifyId = EOS_INVALID_NOTIFICATIONID;
+		}
 	}
 }
 
@@ -44,17 +73,6 @@ bool FEOSAntiCheatClient::BeginSession(EMode Mode, const FUniqueNetIdRef& LocalU
 	{
 		UE_LOG(LogEOSAntiCheatPlugin, Error, TEXT("[FEOSAntiCheatClient::BeginSession] Invalid local PUID."));
 		return false;
-	}
-
-	{
-		EOS_AntiCheatClient_AddNotifyMessageToServerOptions Opts = {};
-		Opts.ApiVersion = EOS_ANTICHEATCLIENT_ADDNOTIFYMESSAGETOSERVER_API_LATEST;
-		MessageToServerNotifyId = EOS_AntiCheatClient_AddNotifyMessageToServer(Handle, &Opts, this, &FEOSAntiCheatClient::OnMessageToServerStatic);
-	}
-	{
-		EOS_AntiCheatClient_AddNotifyClientIntegrityViolatedOptions Opts = {};
-		Opts.ApiVersion = EOS_ANTICHEATCLIENT_ADDNOTIFYCLIENTINTEGRITYVIOLATED_API_LATEST;
-		ClientIntegrityViolatedNotifyId = EOS_AntiCheatClient_AddNotifyClientIntegrityViolated(Handle, &Opts, this, &FEOSAntiCheatClient::OnClientIntegrityViolatedStatic);
 	}
 
 	EOS_AntiCheatClient_BeginSessionOptions Options = {};
@@ -81,17 +99,6 @@ void FEOSAntiCheatClient::EndSession()
 	if (!Handle || !bSessionActive)
 	{
 		return;
-	}
-
-	if (MessageToServerNotifyId != EOS_INVALID_NOTIFICATIONID)
-	{
-		EOS_AntiCheatClient_RemoveNotifyMessageToServer(Handle, MessageToServerNotifyId);
-		MessageToServerNotifyId = EOS_INVALID_NOTIFICATIONID;
-	}
-	if (ClientIntegrityViolatedNotifyId != EOS_INVALID_NOTIFICATIONID)
-	{
-		EOS_AntiCheatClient_RemoveNotifyClientIntegrityViolated(Handle, ClientIntegrityViolatedNotifyId);
-		ClientIntegrityViolatedNotifyId = EOS_INVALID_NOTIFICATIONID;
 	}
 
 	EOS_AntiCheatClient_EndSessionOptions Options = {};

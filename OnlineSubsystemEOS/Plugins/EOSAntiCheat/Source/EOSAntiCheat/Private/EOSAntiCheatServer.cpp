@@ -42,31 +42,12 @@ FEOSAntiCheatServer::FEOSAntiCheatServer(EOS_HPlatform InPlatform, FOnAntiCheatV
 	if (!Handle)
 	{
 		UE_LOG(LogEOSAntiCheatPlugin, Error, TEXT("[FEOSAntiCheatServer] EOS_Platform_GetAntiCheatServerInterface returned null."));
-	}
-}
-
-FEOSAntiCheatServer::~FEOSAntiCheatServer()
-{
-	if (bSessionActive)
-	{
-		EndSession();
-	}
-}
-
-bool FEOSAntiCheatServer::BeginSession()
-{
-	if (!Handle)
-	{
-		return false;
-	}
-	if (bSessionActive)
-	{
-		UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatServer::BeginSession] Session already active - skipping duplicate start."));
-		return false;
+		return;
 	}
 
-	// Register outbound-message and violation callbacks before starting the
-	// session so nothing fires before we have handlers wired.
+	// Notification IDs are interface-handle scoped, not session scoped - bind
+	// once at construction so the SDK has handlers wired the moment any
+	// callback could fire. Handlers gate on bSessionActive where appropriate.
 	{
 		EOS_AntiCheatServer_AddNotifyMessageToClientOptions Opts = {};
 		Opts.ApiVersion = EOS_ANTICHEATSERVER_ADDNOTIFYMESSAGETOCLIENT_API_LATEST;
@@ -81,6 +62,46 @@ bool FEOSAntiCheatServer::BeginSession()
 		EOS_AntiCheatServer_AddNotifyClientAuthStatusChangedOptions Opts = {};
 		Opts.ApiVersion = EOS_ANTICHEATSERVER_ADDNOTIFYCLIENTAUTHSTATUSCHANGED_API_LATEST;
 		ClientAuthStatusChangedNotifyId = EOS_AntiCheatServer_AddNotifyClientAuthStatusChanged(Handle, &Opts, this, &FEOSAntiCheatServer::OnClientAuthStatusChangedStatic);
+	}
+}
+
+FEOSAntiCheatServer::~FEOSAntiCheatServer()
+{
+	if (bSessionActive)
+	{
+		EndSession();
+	}
+
+	if (Handle)
+	{
+		if (MessageToClientNotifyId != EOS_INVALID_NOTIFICATIONID)
+		{
+			EOS_AntiCheatServer_RemoveNotifyMessageToClient(Handle, MessageToClientNotifyId);
+			MessageToClientNotifyId = EOS_INVALID_NOTIFICATIONID;
+		}
+		if (ClientActionRequiredNotifyId != EOS_INVALID_NOTIFICATIONID)
+		{
+			EOS_AntiCheatServer_RemoveNotifyClientActionRequired(Handle, ClientActionRequiredNotifyId);
+			ClientActionRequiredNotifyId = EOS_INVALID_NOTIFICATIONID;
+		}
+		if (ClientAuthStatusChangedNotifyId != EOS_INVALID_NOTIFICATIONID)
+		{
+			EOS_AntiCheatServer_RemoveNotifyClientAuthStatusChanged(Handle, ClientAuthStatusChangedNotifyId);
+			ClientAuthStatusChangedNotifyId = EOS_INVALID_NOTIFICATIONID;
+		}
+	}
+}
+
+bool FEOSAntiCheatServer::BeginSession()
+{
+	if (!Handle)
+	{
+		return false;
+	}
+	if (bSessionActive)
+	{
+		UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatServer::BeginSession] Session already active - skipping duplicate start."));
+		return false;
 	}
 
 	EOS_AntiCheatServer_BeginSessionOptions Options = {};
@@ -107,24 +128,6 @@ void FEOSAntiCheatServer::EndSession()
 	if (!Handle || !bSessionActive)
 	{
 		return;
-	}
-
-	// Release notification bindings before EndSession to avoid late callback
-	// delivery after we've torn state down.
-	if (MessageToClientNotifyId != EOS_INVALID_NOTIFICATIONID)
-	{
-		EOS_AntiCheatServer_RemoveNotifyMessageToClient(Handle, MessageToClientNotifyId);
-		MessageToClientNotifyId = EOS_INVALID_NOTIFICATIONID;
-	}
-	if (ClientActionRequiredNotifyId != EOS_INVALID_NOTIFICATIONID)
-	{
-		EOS_AntiCheatServer_RemoveNotifyClientActionRequired(Handle, ClientActionRequiredNotifyId);
-		ClientActionRequiredNotifyId = EOS_INVALID_NOTIFICATIONID;
-	}
-	if (ClientAuthStatusChangedNotifyId != EOS_INVALID_NOTIFICATIONID)
-	{
-		EOS_AntiCheatServer_RemoveNotifyClientAuthStatusChanged(Handle, ClientAuthStatusChangedNotifyId);
-		ClientAuthStatusChangedNotifyId = EOS_INVALID_NOTIFICATIONID;
 	}
 
 	EOS_AntiCheatServer_EndSessionOptions Options = {};
