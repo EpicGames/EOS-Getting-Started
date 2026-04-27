@@ -11,29 +11,24 @@
 #include "eos_anticheatserver.h"
 #include "eos_common.h"
 
-namespace
+/** Short human-readable text for the ClientAction enum (for logs + kick reason). */
+static FString LexToStringClientAction(EOS_EAntiCheatCommonClientAction Action)
 {
-	/** Short human-readable text for the ClientAction enum (for logs + kick reason). */
-	// The SDK exposes these enums as `enum class` under C++, so every case label
-	// has to be fully qualified with the enum type - hence the verbose names.
-	FString LexToStringClientAction(EOS_EAntiCheatCommonClientAction Action)
+	switch (Action)
 	{
-		switch (Action)
-		{
-		case EOS_EAntiCheatCommonClientAction::EOS_ACCCA_RemovePlayer: return TEXT("RemovePlayer");
-		default:                                                       return FString::Printf(TEXT("Unknown(%d)"), static_cast<int32>(Action));
-		}
+	case EOS_EAntiCheatCommonClientAction::EOS_ACCCA_RemovePlayer: return TEXT("RemovePlayer");
+	default:                                                       return FString::Printf(TEXT("Unknown(%d)"), static_cast<int32>(Action));
 	}
+}
 
-	FString LexToStringAuthStatus(EOS_EAntiCheatCommonClientAuthStatus Status)
+static FString LexToStringAuthStatus(EOS_EAntiCheatCommonClientAuthStatus Status)
+{
+	switch (Status)
 	{
-		switch (Status)
-		{
-		case EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_Invalid:            return TEXT("Invalid");
-		case EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_LocalAuthComplete:  return TEXT("LocalAuthComplete");
-		case EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_RemoteAuthComplete: return TEXT("RemoteAuthComplete");
-		default:                                                                  return FString::Printf(TEXT("Unknown(%d)"), static_cast<int32>(Status));
-		}
+	case EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_Invalid:            return TEXT("Invalid");
+	case EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_LocalAuthComplete:  return TEXT("LocalAuthComplete");
+	case EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_RemoteAuthComplete: return TEXT("RemoteAuthComplete");
+	default:                                                                  return FString::Printf(TEXT("Unknown(%d)"), static_cast<int32>(Status));
 	}
 }
 
