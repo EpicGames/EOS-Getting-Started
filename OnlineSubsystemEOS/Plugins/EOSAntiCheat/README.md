@@ -74,10 +74,11 @@ parameter telling it where to read artifact IDs from.
 
 The command:
 
-1. Reads the `Client` artifact from the project's DefaultEngine.ini,
-   with the per-developer `Restricted/NoRedist/Config/DefaultEngine.ini`
-   overlay taking precedence (so the committed stub with blank
-   credentials doesn't win).
+1. Reads the `Client` artifact from the project's
+   `Config/DefaultEngine.ini`. The committed file ships with blank
+   artifact stubs — fill in your `ProductId` / `SandboxId` /
+   `DeploymentId` / `ClientId` / `ClientSecret` from the EOS Dev Portal
+   before running this step (same credentials Tutorial 1 walks through).
 2. Writes `<PackageDir>/EasyAntiCheat/Settings.json` with the resolved
    ProductId / SandboxId / DeploymentId and the game exe name.
 3. Invokes `Plugins/EOSAntiCheat/Tools/devtools/anticheat_integritytool.exe`

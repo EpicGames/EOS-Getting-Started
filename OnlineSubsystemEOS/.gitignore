@@ -20,5 +20,4 @@ Saved
 
 # UE convention: Restricted/NoRedist, Restricted/NotForLicensees, Restricted/LimitedAccess
 # contain files the engine auto-layers on top of committed configs but that must never ship.
-# Use Restricted/NoRedist/Config/DefaultEngine.ini for local-only EOS credentials.
 Restricted/

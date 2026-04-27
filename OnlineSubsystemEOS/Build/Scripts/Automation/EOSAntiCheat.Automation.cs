@@ -18,8 +18,8 @@ Build.cs already staged the EAC runtime files into the package via
 RuntimeDependencies; this command:
 
   1. Writes EasyAntiCheat/Settings.json with deployment IDs pulled from the
-     project's [/Script/OnlineSubsystemEOS.EOSSettings] artifact config
-     (NoRedist overlay wins over the committed defaults).
+     project's [/Script/OnlineSubsystemEOS.EOSSettings] artifact config in
+     Config/DefaultEngine.ini.
   2. Runs Plugins/EOSAntiCheat/Tools/devtools/anticheat_integritytool.exe
      against the packaged tree to upload a hash manifest to the Dev Portal.
 
@@ -33,7 +33,7 @@ After this completes, launch the game via <stagedDir>/start_protected_game.exe.
 	[Help("PackageDir", "Root of the staged package produced by BuildCookRun (required).")]
 	[Help("GameExe", "Filename of the packaged game binary. Defaults to '<uproject basename>.exe'.")]
 	[Help("Artifact", "Artifact to read from EOSSettings. Defaults to 'Client'.")]
-	[Help("CertDir", "Directory containing the Dev Portal cert + private key (default: Restricted/NoRedist/EACCerts).")]
+	[Help("CertDir", "Directory containing the Dev Portal cert + private key (default: Plugins/EOSAntiCheat/Tools/Certs).")]
 	[Help("OutName", "Base filename the integrity tool writes into EasyAntiCheat/Certificates (default: 'base').")]
 	public class ProtectEOSPackage : BuildCommand
 	{
@@ -90,11 +90,12 @@ After this completes, launch the game via <stagedDir>/start_protected_game.exe.
 			string SettingsPath = Path.Combine(EacRuntimeDest, "Settings.json");
 
 			// Integrity tool needs the Dev Portal-issued private key + certificate.
-			// Download them from Dev Portal -> your game title -> Anti-Cheat -> Certificates,
-			// and save under Restricted/NoRedist/EACCerts/ (gitignored).
+			// Download them from Dev Portal -> your game title -> Anti-Cheat -> Certificates
+			// and save under Plugins/EOSAntiCheat/Tools/Certs/ (the entire Tools/ tree is
+			// gitignored), or pass -CertDir=<dir>.
 			string CertDir = !string.IsNullOrEmpty(CertDirOverride)
 				? CertDirOverride
-				: Path.Combine(ProjectDir, "Restricted", "NoRedist", "EACCerts");
+				: Path.Combine(PluginDir, "Tools", "Certs");
 			string PrivateKey = Path.Combine(CertDir, "base_private.key");
 			string Certificate = Path.Combine(CertDir, "base_public.cer");
 			if (!File.Exists(PrivateKey) || !File.Exists(Certificate))
@@ -105,8 +106,6 @@ After this completes, launch the game via <stagedDir>/start_protected_game.exe.
 			}
 
 			// -------- Read artifact IDs ------------------------------------
-			// Later entries in the combined ini stream win, so the NoRedist per-developer
-			// overlay takes precedence over the committed Config/DefaultEngine.ini stub.
 			var ArtifactInfo = ReadArtifactFromIni(ProjectDir, Artifact);
 
 			Logger.LogInformation("Protecting package: {0}", PackageDir);
@@ -200,28 +199,26 @@ After this completes, launch the game via <stagedDir>/start_protected_game.exe.
 
 		private ArtifactSettings ReadArtifactFromIni(string ProjectDir, string ArtifactName)
 		{
-			string PublicIni = Path.Combine(ProjectDir, "Config", "DefaultEngine.ini");
-			string LocalIni = Path.Combine(ProjectDir, "Restricted", "NoRedist", "Config", "DefaultEngine.ini");
+			string IniPath = Path.Combine(ProjectDir, "Config", "DefaultEngine.ini");
+			if (!File.Exists(IniPath))
+			{
+				throw new AutomationException("Config/DefaultEngine.ini not found at {0}.", IniPath);
+			}
 
-			// Read both and concatenate so the overlay's +Artifacts lines come later.
-			var Combined = new StringBuilder();
-			if (File.Exists(PublicIni)) { Combined.AppendLine(File.ReadAllText(PublicIni)); }
-			if (File.Exists(LocalIni))  { Combined.AppendLine(File.ReadAllText(LocalIni)); }
-
-			// Match every line that starts +Artifacts=(ArtifactName="<ArtifactName>",...)
-			// and keep the last one, so per-developer overlay wins.
+			// Match the last +Artifacts=(ArtifactName="<ArtifactName>",...) line so a
+			// later override (e.g. ProjectName.ini, command-line) wins over earlier ones.
 			var Rx = new Regex(
 				@"^\+Artifacts=\(ArtifactName=""" + Regex.Escape(ArtifactName) + @""",(?<body>.*)\)\s*$",
 				RegexOptions.Multiline);
 
 			Match Last = null;
-			foreach (Match M in Rx.Matches(Combined.ToString()))
+			foreach (Match M in Rx.Matches(File.ReadAllText(IniPath)))
 			{
 				Last = M;
 			}
 			if (Last == null)
 			{
-				throw new AutomationException("Artifact '{0}' not found in DefaultEngine.ini (neither committed nor NoRedist overlay).", ArtifactName);
+				throw new AutomationException("Artifact '{0}' not found in Config/DefaultEngine.ini. Add a +Artifacts= line under [/Script/OnlineSubsystemEOS.EOSSettings] with your Dev Portal credentials.", ArtifactName);
 			}
 
 			string Body = Last.Groups["body"].Value;
@@ -234,7 +231,7 @@ After this completes, launch the game via <stagedDir>/start_protected_game.exe.
 
 			if (string.IsNullOrEmpty(Result.ProductId) || string.IsNullOrEmpty(Result.ClientSecret))
 			{
-				throw new AutomationException("Artifact '{0}' is missing credentials. Populate it in Restricted/NoRedist/Config/DefaultEngine.ini.", ArtifactName);
+				throw new AutomationException("Artifact '{0}' is missing credentials. Populate ProductId / SandboxId / DeploymentId / ClientId / ClientSecret in Config/DefaultEngine.ini under [/Script/OnlineSubsystemEOS.EOSSettings].", ArtifactName);
 			}
 			return Result;
 		}
