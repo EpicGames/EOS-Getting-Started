@@ -205,14 +205,26 @@ After this completes, launch the game via <stagedDir>/start_protected_game.exe.
 				throw new AutomationException("Config/DefaultEngine.ini not found at {0}.", IniPath);
 			}
 
+			// Read the committed config, then transparently layer the per-developer
+			// Restricted/NoRedist overlay on top if it exists. This is a UE-standard
+			// gitignored layout for local-only credentials; tutorial readers won't
+			// have one, in which case only the committed file is consulted.
+			var Combined = new StringBuilder();
+			Combined.AppendLine(File.ReadAllText(IniPath));
+			string OverlayIni = Path.Combine(ProjectDir, "Restricted", "NoRedist", "Config", "DefaultEngine.ini");
+			if (File.Exists(OverlayIni))
+			{
+				Combined.AppendLine(File.ReadAllText(OverlayIni));
+			}
+
 			// Match the last +Artifacts=(ArtifactName="<ArtifactName>",...) line so a
-			// later override (e.g. ProjectName.ini, command-line) wins over earlier ones.
+			// later override wins (overlay or repeated entries within the same file).
 			var Rx = new Regex(
 				@"^\+Artifacts=\(ArtifactName=""" + Regex.Escape(ArtifactName) + @""",(?<body>.*)\)\s*$",
 				RegexOptions.Multiline);
 
 			Match Last = null;
-			foreach (Match M in Rx.Matches(File.ReadAllText(IniPath)))
+			foreach (Match M in Rx.Matches(Combined.ToString()))
 			{
 				Last = M;
 			}
