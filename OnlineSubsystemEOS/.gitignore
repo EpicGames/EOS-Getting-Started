@@ -15,6 +15,10 @@ Saved
 *.xcworkspace
 *.code-workspace
 
+# UAT-generated alongside C# automation scripts (Build/Scripts/Automation/*.csproj).
+# Records the absolute path to the engine the script was built against - per-developer.
+*.csproj.props
+
 # Local-only launch scripts with credentials live under batch/local/.
 # Tutorial 9 moved these out of the project root and dropped the `.local.bat`
 # suffix (the folder name already marks them as local).
