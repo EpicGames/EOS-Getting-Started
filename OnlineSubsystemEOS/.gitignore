@@ -15,8 +15,10 @@ Saved
 *.xcworkspace
 *.code-workspace
 
-# Local-only launch scripts with credentials (Client1.local.bat, Client2.local.bat, Server.local.bat, ...)
-*.local.bat
+# Local-only launch scripts with credentials live under batch/local/.
+# Tutorial 9 moved these out of the project root and dropped the `.local.bat`
+# suffix (the folder name already marks them as local).
+batch/local/
 
 # UE convention: Restricted/NoRedist, Restricted/NotForLicensees, Restricted/LimitedAccess
 # contain files the engine auto-layers on top of committed configs but that must never ship.

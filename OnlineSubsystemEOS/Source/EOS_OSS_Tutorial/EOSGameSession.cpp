@@ -25,9 +25,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
-// Tutorial 9 (server-side anti-cheat): plugin interfaces are included here because
-// BeginPlay/EndPlay wire the lifecycle, NotifyLogout unregisters, and the OnViolation
-// delegate drives the kick.
+// Tutorial 9 (server-side AC): wires the lifecycle and the OnViolation -> kick path.
 #include "IEOSAntiCheat.h"
 #include "IEOSAntiCheatServer.h"
 #endif
@@ -759,12 +757,20 @@ void AEOSGameSession::RegisterAntiCheatClient(const FUniqueNetIdRef& PlayerId)
     }
 }
 
-void AEOSGameSession::HandleAntiCheatViolation(const FUniqueNetIdRef& PlayerId, const FString& Reason)
+void AEOSGameSession::HandleAntiCheatViolation(const FUniqueNetIdPtr& PlayerId, const FString& Reason)
 {
-    AEOSPlayerController* PC = FindPlayerControllerByNetId(PlayerId);
+    // PEER_SELF is P2P-only - a null here means a cross-wired bridge.
+    if (!PlayerId.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSGameSession::HandleAntiCheatViolation] Null PlayerId - ignoring (unexpected in server mode)."));
+        return;
+    }
+    const FUniqueNetIdRef PlayerRef = PlayerId.ToSharedRef();
+
+    AEOSPlayerController* PC = FindPlayerControllerByNetId(PlayerRef);
     if (!PC)
     {
-        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSGameSession::HandleAntiCheatViolation] No PlayerController for flagged PlayerId=%s - cannot kick."), *PlayerId->ToString());
+        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSGameSession::HandleAntiCheatViolation] No PlayerController for flagged PlayerId=%s - cannot kick."), *PlayerRef->ToString());
         return;
     }
 

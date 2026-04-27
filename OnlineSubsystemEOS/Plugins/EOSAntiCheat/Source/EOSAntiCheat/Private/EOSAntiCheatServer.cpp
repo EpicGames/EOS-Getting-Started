@@ -101,9 +101,16 @@ bool FEOSAntiCheatServer::BeginSession()
 		return false;
 	}
 
+	// RegisterTimeoutSeconds from config, clamped to SDK range [10s, 120s].
+	int32 TimeoutFromIni = 60;
+	GConfig->GetInt(TEXT("EOSAntiCheat"), TEXT("RegisterTimeoutSeconds"), TimeoutFromIni, GEngineIni);
+	const int32 ClampedTimeout = FMath::Clamp(TimeoutFromIni,
+		static_cast<int32>(EOS_ANTICHEATSERVER_BEGINSESSION_MIN_REGISTERTIMEOUT),
+		static_cast<int32>(EOS_ANTICHEATSERVER_BEGINSESSION_MAX_REGISTERTIMEOUT));
+
 	EOS_AntiCheatServer_BeginSessionOptions Options = {};
 	Options.ApiVersion = EOS_ANTICHEATSERVER_BEGINSESSION_API_LATEST;
-	Options.RegisterTimeoutSeconds = 60; // recommended default
+	Options.RegisterTimeoutSeconds = static_cast<uint32_t>(ClampedTimeout);
 	Options.ServerName = nullptr;
 	Options.bEnableGameplayData = EOS_FALSE; // we don't use LogPlayerTick in this tutorial
 	Options.LocalUserId = nullptr;           // dedicated server has no local user
@@ -116,7 +123,7 @@ bool FEOSAntiCheatServer::BeginSession()
 	}
 
 	bSessionActive = true;
-	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatServer::BeginSession] Session started."));
+	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatServer::BeginSession] Session started (register timeout %ds)."), ClampedTimeout);
 	return true;
 }
 
@@ -322,7 +329,7 @@ void FEOSAntiCheatServer::FlagForKick(EOS_AntiCheatCommon_ClientHandle ClientHan
 
 	// The plugin only raises the event - the game decides what to do (kick,
 	// ban, log telemetry). AEOSGameSession subscribes and calls KickPlayer.
-	ViolationDelegate.Broadcast(*PlayerIdPtr, Reason);
+	ViolationDelegate.Broadcast(PlayerIdPtr->ToSharedPtr(), Reason);
 }
 
 #endif // !P2PMODE

@@ -23,12 +23,7 @@
 
 DEFINE_LOG_CATEGORY(LogEOSAntiCheatPlugin);
 
-/**
- * Plugin module + IEOSAntiCheat singleton in one. Keeping them merged (rather
- * than a separate FEOSAntiCheatModule that allocates the IEOSAntiCheat impl)
- * means callers can reach the singleton with a single module lookup and the
- * lifetime is tied to the module's load/unload, which is what we want.
- */
+/** Plugin module + IEOSAntiCheat singleton merged - one module lookup reaches the singleton. */
 class FEOSAntiCheat final : public IEOSAntiCheat
 {
 public:
@@ -53,12 +48,9 @@ private:
 	FOnAntiCheatViolation ViolationDelegate;
 
 #if !WITH_EDITOR
-	// Held so the platform stays alive while this module holds SDK handles
-	// through it. Lifetime mirrors the module; released in ShutdownModule.
+	// Keeps the platform alive while this module holds SDK handles.
 	IEOSPlatformHandlePtr PlatformHandle;
 
-	// Pending verify delegates indexed by the C SDK callback's ClientData - lets
-	// us dispatch back to the right caller when the async verify completes.
 	static void EOS_CALL OnVerifyIdTokenStatic(const EOS_Connect_VerifyIdTokenCallbackInfo* Data);
 #endif
 };
@@ -71,18 +63,12 @@ IEOSAntiCheat* IEOSAntiCheat::Get()
 void FEOSAntiCheat::StartupModule()
 {
 #if WITH_EDITOR
-	// Editor (or any Editor-target binary, including "Standalone Game" launched
-	// from the editor) must not initialize AntiCheat - the SDK only runs under
-	// the EasyAntiCheat bootstrapper, which only wraps packaged Game builds.
-	// Logged once at module load so it's obvious why no BeginSession output follows.
+	// AntiCheat needs the EasyAntiCheat bootstrapper, which only wraps packaged Game builds.
 	UE_LOG(LogEOSAntiCheatPlugin, Log, TEXT("[FEOSAntiCheat::StartupModule] Editor build - AntiCheat disabled. Package the game and launch via the bootstrapper to exercise the full flow."));
 #endif
 
 #if !WITH_EDITOR
-	// Borrow the already-initialized EOS platform from OnlineSubsystemEOS rather
-	// than standing up a second one. Same type-guarded pattern the voice-chat
-	// code uses before casting to IOnlineSubsystemEOS - voice fails silently
-	// without EOS as the active OSS, and AntiCheat would do the same.
+	// Borrow the EOS platform from OnlineSubsystemEOS instead of standing up a second one.
 	IOnlineSubsystem* Subsystem = IOnlineSubsystem::Get();
 	IOnlineSubsystemEOS* EOSSubsystem = (Subsystem && Subsystem->GetSubsystemName() == EOS_SUBSYSTEM) ? static_cast<IOnlineSubsystemEOS*>(Subsystem) : nullptr;
 	PlatformHandle = EOSSubsystem ? EOSSubsystem->GetEOSPlatformHandle() : nullptr;
@@ -102,15 +88,24 @@ void FEOSAntiCheat::StartupModule()
 	}
 
 #if !P2PMODE
-	// The server wrapper needs the module's violation delegate so it can broadcast
-	// from inside its own callbacks without a separate IEOSAntiCheat::Get() lookup.
+	// Pass the module's violation delegate so the server wrapper can broadcast directly.
 	Server = MakeUnique<FEOSAntiCheatServer>(Platform, ViolationDelegate);
 #endif
 
-	// No client-side AntiCheat interface on dedicated servers - skip the wrapper.
+	// No client interface on dedicated servers.
 	if (!IsRunningDedicatedServer())
 	{
 		Client = MakeUnique<FEOSAntiCheatClient>(Platform);
+
+#if P2PMODE
+		// Bridge client peer-action-required onto the module's OnViolation
+		// so tutorial code uses one subscription across both modes.
+		Client->OnPeerActionRequired().AddLambda(
+			[this](const FUniqueNetIdPtr& Peer, const FString& Reason)
+			{
+				ViolationDelegate.Broadcast(Peer, Reason);
+			});
+#endif
 	}
 
 	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheat::StartupModule] EOS AntiCheat plugin initialized."));
@@ -120,8 +115,7 @@ void FEOSAntiCheat::StartupModule()
 void FEOSAntiCheat::ShutdownModule()
 {
 #if !WITH_EDITOR
-	// Reverse order: client/server wrappers first (they may hold SDK handles
-	// derived from the platform), then release the platform reference itself.
+	// Reverse order: SDK-handle wrappers first, then the platform reference.
 	Client.Reset();
 #if !P2PMODE
 	Server.Reset();
@@ -164,8 +158,7 @@ bool FEOSAntiCheat::CopyLocalIdToken(const FUniqueNetIdRef& LocalUser, FString& 
 }
 
 #if !WITH_EDITOR
-// Heap-allocated pending-verify state. Lives until the async SDK callback fires,
-// then self-deletes after invoking the caller's FOnIdTokenVerified.
+// Heap-allocated pending-verify state, self-deleted in the SDK callback.
 struct FPendingIdTokenVerify
 {
 	IEOSAntiCheat::FOnIdTokenVerified Delegate;
@@ -189,9 +182,7 @@ void FEOSAntiCheat::VerifyIdToken(const FUniqueNetIdRef& ClaimedUser, const FStr
 		return;
 	}
 
-	// SDK requires BOTH the claimed PUID and the JWT; it confirms the token
-	// signature matches the PUID. Supplying nullptr for ProductUserId makes
-	// the call fail with EOS_InvalidParameters.
+	// SDK requires both PUID and JWT - confirms token signature matches the PUID.
 	const EOS_ProductUserId ClaimedPuid = static_cast<const IUniqueNetIdEOS&>(*ClaimedUser).GetProductUserId();
 	const FTCHARToUTF8 JwtUtf8(*JsonWebToken);
 

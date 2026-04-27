@@ -22,15 +22,10 @@ class IEOSAntiCheatClient;
 DECLARE_LOG_CATEGORY_EXTERN(LogEOSAntiCheatPlugin, Log, All);
 
 /**
- * Broadcast when the server-side AntiCheat interface reports a player has been
- * flagged and kicked. Subscribers can surface UI, record telemetry, or trigger
- * additional game-level responses. Runs on the game thread.
- *
- * Parameters:
- *   - PlayerId:   the offending player's FUniqueNetIdRef (EOS ProductUserId wrapped).
- *   - Reason:     short human-readable string from the SDK's action/status enum.
+ * Unified violation signal for both modes. Game-thread.
+ * PlayerId is null when the LOCAL client was flagged (PEER_SELF in P2P).
  */
-DECLARE_MULTICAST_DELEGATE_TwoParams(FOnAntiCheatViolation, const FUniqueNetIdRef& /*PlayerId*/, const FString& /*Reason*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnAntiCheatViolation, const FUniqueNetIdPtr& /*PlayerId, null = self*/, const FString& /*Reason*/);
 
 /**
  * Module-level singleton that owns the plugin's server-side and client-side
@@ -46,6 +41,14 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FOnAntiCheatViolation, const FUniqueNetIdRe
  * configurations where the corresponding interface isn't applicable (e.g. the
  * server interface in a pure-client shipping build, or both in an Editor
  * build - the plugin no-ops in the editor per the integration contract).
+ *
+ * Threading: the EOS SDK is NOT thread-safe. Every SDK call and every SDK
+ * callback runs on the thread that ticks EOS_Platform_Tick, which
+ * OnlineSubsystemEOS pumps from the game thread. This plugin inherits that
+ * contract: every public delegate below fires on the game thread, and every
+ * plugin entry point must be called from the game thread. Do not move plugin
+ * work to a worker thread or stand up a second EOS_Platform_Tick - either
+ * will corrupt SDK state.
  */
 class EOSANTICHEAT_API IEOSAntiCheat : public IModuleInterface
 {

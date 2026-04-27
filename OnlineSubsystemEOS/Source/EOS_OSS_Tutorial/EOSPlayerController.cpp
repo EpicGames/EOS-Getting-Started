@@ -6,6 +6,7 @@
 #include "OnlineSubsystemUtils.h"
 #include "OnlineSubsystemTypes.h"
 #include "OnlineSessionSettings.h" // UE 5.8: FOnlineSessionSearchResult is only forward-declared by OnlineSessionInterface.h - include the full definition here.
+#include "Online/OnlineSessionNames.h" // SEARCH_LOBBIES FName used by the P2P find-lobby branch (no longer pulled in transitively in UE 5.8).
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "Containers/Array.h"
 #include "Kismet/GameplayStatics.h"
@@ -15,6 +16,13 @@
 #include "Serialization/ArchiveLoadCompressedProxy.h"
 #include "EOS_OSS_TutorialGameMode.h"
 
+// Tutorial 9 (anti-cheat): both branches use the plugin - keep these unguarded.
+#include "IEOSAntiCheat.h"
+#include "IEOSAntiCheatClient.h"
+#include "EOSGameSession.h"
+#include "GameFramework/PlayerState.h"       // APlayerState::GetUniqueId().
+#include "GameFramework/GameSession.h"       // AGameSession::KickPlayer.
+
 #if !P2PMODE
 #include "VoiceChat.h"                      // IVoiceChat, IVoiceChatUser, FVoiceChatResult, EVoiceChatChannelType, all the FOnVoiceChat*CompleteDelegate typedefs.
 #include "EOSVoiceChat.h"                   // FEOSVoiceChat::SetPlatformHandle() - used to reuse OSS's EOS platform rather than letting the voice plugin create a second one.
@@ -23,13 +31,7 @@
 #include "OnlineSubsystemEOSTypesPublic.h"  // IUniqueNetIdEOS - exposes GetProductUserId() on OSS-produced FUniqueNetIds.
 #include "EOSShared.h"                       // LexToString(EOS_ProductUserId) - formats the PUID as the string IVoiceChatUser::Login wants.
 #include "Engine/LocalPlayer.h"              // ULocalPlayer::GetPlatformUserId() for the voice Login() call.
-
-// Tutorial 9 (anti-cheat client):
-#include "IEOSAntiCheat.h"
-#include "IEOSAntiCheatClient.h"
-#include "IEOSAntiCheatServer.h"             // Server-side RPC impl feeds bytes back via IEOSAntiCheatServer.
-#include "EOSGameSession.h"                  // AEOSGameSession::RegisterAntiCheatClient - server-side RPC landing spot.
-#include "GameFramework/PlayerState.h"       // APlayerState::GetUniqueId() - complete type required for the server-side RPC impls.
+#include "IEOSAntiCheatServer.h"             // Server-mode RPC impl feeds bytes back via IEOSAntiCheatServer.
 #endif
 
 DEFINE_LOG_CATEGORY(LogEOSOSSTutorial);
@@ -70,6 +72,24 @@ void AEOSPlayerController::BeginPlay()
         }
         Server_NotifyAntiCheatReady(IdTokenJwt);
     }
+#else
+    // Tutorial 9 (P2P branch): bind the violation delegate to this live PC.
+    // First-time spawns and post-travel rebinds both go through here - on the
+    // joiner, ClientTravel destroyed the pre-travel PC and its delegate handle
+    // is already gone (EndPlay -> UnbindAntiCheatViolationDelegate), so the
+    // post-travel PC needs a fresh bind. Session start happens later from
+    // HandleLoginCompleted via StartAntiCheatPeerSession.
+    if (IsLocalController())
+    {
+        BindAntiCheatViolationDelegate();
+
+        IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+        IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+        if (Session.IsValid() && Session->GetNamedSession(LobbyName))
+        {
+            SetupNotifications();
+        }
+    }
 #endif
 }
 
@@ -81,6 +101,9 @@ void AEOSPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
     LeaveVoiceChat();
 
     // Tutorial 9: AC session is plugin-scoped and shuts down with the module, not here.
+#else
+    // Tutorial 9 (P2P branch): clear violation binding. Plugin shutdown handles the AC session itself.
+    UnbindAntiCheatViolationDelegate();
 #endif
 
     // Clear every delegate handle this controller bound on the OSS interfaces. Without this the OSS
@@ -111,6 +134,17 @@ void AEOSPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
             ParticipantJoinedDelegateHandle.Reset();
             Session->ClearOnSessionParticipantLeftDelegate_Handle(ParticipantLeftDelegateHandle);
             ParticipantLeftDelegateHandle.Reset();
+            // Both stay live for the session lifetime - always clear here.
+            if (SessionSettingsUpdatedDelegateHandle.IsValid())
+            {
+                Session->ClearOnSessionSettingsUpdatedDelegate_Handle(SessionSettingsUpdatedDelegateHandle);
+                SessionSettingsUpdatedDelegateHandle.Reset();
+            }
+            if (ParticipantSettingsUpdatedDelegateHandle.IsValid())
+            {
+                Session->ClearOnSessionParticipantSettingsUpdatedDelegate_Handle(ParticipantSettingsUpdatedDelegateHandle);
+                ParticipantSettingsUpdatedDelegateHandle.Reset();
+            }
 #endif
         }
 
@@ -275,6 +309,10 @@ void AEOSPlayerController::HandleLoginCompleted(int32 LocalUserNum, bool bWasSuc
 #if !P2PMODE
         // Tutorial 9: Login succeeded so the NetId is ready - start the AC session.
         BeginAntiCheatClientSession();
+#else
+        // Tutorial 9 (P2P branch): peers are registered later as lobby events fire.
+        // Delegate is already bound from BeginPlay - we just start the session here.
+        StartAntiCheatPeerSession();
 #endif
     }
     else
@@ -463,6 +501,9 @@ void AEOSPlayerController::HandleJoinSessionCompleted(FName SessionName, EOnJoin
         // Bind lobby notifications BEFORE ClientTravel - travel tears down this controller on the
         // client, so binding after the travel request would attach a dying `this` to the session.
         SetupNotifications();
+
+        // Tutorial 9 (P2P branch): existing participants land via OnSessionSettingsUpdated
+        // (CopyLobbyData populates MemberSettings async after this completes).
         ClientTravel(ConnectString, TRAVEL_Absolute);
     }
 #else
@@ -1200,20 +1241,23 @@ void AEOSPlayerController::Client_AntiCheatMessage_Implementation(const TArray<u
     }
 }
 
+void AEOSPlayerController::Server_PeerViolationDetected_Implementation(const FUniqueNetIdRepl& OffendingPlayer, const FString& Reason)
+{
+    // Tutorial 9: Server-mode stub. Peer-detected violations only fire in P2PMODE.
+}
+
 #endif // !P2PMODE
 
 // Tutorial 7: This code will only be included if P2PMode is enabled.
 
 #if P2PMODE
 
-// Empty stub - the P2P branch uses lobby-managed voice and never receives this RPC, but UHT
-// still generates dispatch code for the UFUNCTION so the symbol must exist.
+// Empty stub - unused in P2P (lobby-managed voice), but UHT requires the symbol.
 void AEOSPlayerController::Client_ReceiveVoiceCredentials_Implementation(const FString& RoomName, const FString& ParticipantToken, const FString& ClientBaseUrl)
 {
 }
 
-// Tutorial 9: P2PMODE stubs for the server-architecture AntiCheat RPCs. Dedicated-server
-// AntiCheat is off in P2P mode; the P2P-specific peer flow lands in a later commit.
+// Tutorial 9: stubs for the dedicated-server AC RPCs (unused in mesh mode).
 void AEOSPlayerController::Server_NotifyAntiCheatReady_Implementation(const FString& IdTokenJwt)
 {
 }
@@ -1224,6 +1268,16 @@ void AEOSPlayerController::Server_AntiCheatMessage_Implementation(const TArray<u
 
 void AEOSPlayerController::Client_AntiCheatMessage_Implementation(const TArray<uint8>& Bytes)
 {
+}
+
+// Tutorial 9 (P2P branch): non-host's violation report - host logs for telemetry only.
+// Host's own SDK fires independently and does the kick; this is not authoritative.
+void AEOSPlayerController::Server_PeerViolationDetected_Implementation(const FUniqueNetIdRepl& OffendingPlayer, const FString& Reason)
+{
+    FUniqueNetIdPtr OffenderId = OffendingPlayer.GetUniqueNetId();
+    const FString OffenderStr = OffenderId.IsValid() ? OffenderId->ToString() : FString(TEXT("<invalid>"));
+    UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSPlayerController::Server_PeerViolationDetected] Non-host peer reported violation on %s: %s"),
+        *OffenderStr, *Reason);
 }
 
 void AEOSPlayerController::CreateLobby(FName KeyName, FString KeyValue)
@@ -1240,7 +1294,7 @@ void AEOSPlayerController::CreateLobby(FName KeyName, FString KeyValue)
                 &ThisClass::HandleCreateLobbyCompleted));
 
         TSharedRef<FOnlineSessionSettings> SessionSettings = MakeShared<FOnlineSessionSettings>();
-        SessionSettings->NumPublicConnections = 2; // We will test our sessions with 2 players to keep things simple.
+        SessionSettings->NumPublicConnections = 3; // Host + 2 non-hosts for the Tutorial 9 P2P kick-telemetry test.
         SessionSettings->bShouldAdvertise = true; // This creates a public match and will be searchable.
         SessionSettings->bUsesPresence = false;   // No presence on dedicated server. This requires a local user.
         SessionSettings->bAllowJoinViaPresence = false;
@@ -1317,6 +1371,19 @@ void AEOSPlayerController::SetupNotifications()
             Session->AddOnSessionParticipantLeftDelegate_Handle(FOnSessionParticipantLeftDelegate::CreateUObject(
                 this,
                 &ThisClass::HandleParticipantLeft));
+
+        // Tutorial 9 (P2P branch): catches participants already in the lobby on join.
+        SessionSettingsUpdatedDelegateHandle =
+            Session->AddOnSessionSettingsUpdatedDelegate_Handle(FOnSessionSettingsUpdatedDelegate::CreateUObject(
+                this,
+                &ThisClass::HandleSessionSettingsUpdated));
+
+        // Tutorial 9 (P2P branch): catches later-arrivers the OSS routes through
+        // settings-updated instead of participant-joined on the joiner side.
+        ParticipantSettingsUpdatedDelegateHandle =
+            Session->AddOnSessionParticipantSettingsUpdatedDelegate_Handle(FOnSessionParticipantSettingsUpdatedDelegate::CreateUObject(
+                this,
+                &ThisClass::HandleParticipantSettingsUpdated));
     }
     else
     {
@@ -1324,16 +1391,193 @@ void AEOSPlayerController::SetupNotifications()
     }
 }
 
+void AEOSPlayerController::HandleSessionSettingsUpdated(FName UpdatedSessionName, const FOnlineSessionSettings& UpdatedSettings)
+{
+    // OSS routing quirk (independent of EAC SDK notify-binding timing): when a
+    // joiner enters a populated lobby, FOnlineSessionEOS::UpdateOrAddLobbyMember
+    // routes already-present members through OnSessionSettingsUpdated instead of
+    // OnSessionParticipantJoined (the !bWasLobbyMemberAdded path). Without this
+    // walk, Client3 joining a 2-player lobby misses the existing peers and they
+    // spurious-kick at the auth-timeout. RegisterPeer dedupes.
+    if (UpdatedSessionName != LobbyName || UpdatedSettings.MemberSettings.Num() <= 1)
+    {
+        return;
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    FUniqueNetIdPtr LocalNetId = Identity.IsValid() ? Identity->GetUniquePlayerId(0) : nullptr;
+    IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+    IEOSAntiCheatClient* AntiCheatClient = AntiCheat ? AntiCheat->GetClient() : nullptr;
+    if (!LocalNetId.IsValid() || !AntiCheatClient)
+    {
+        return;
+    }
+
+    int32 NonLocalCount = 0;
+    for (const TPair<FUniqueNetIdRef, FSessionSettings>& MemberPair : UpdatedSettings.MemberSettings)
+    {
+        if (*MemberPair.Key != *LocalNetId)
+        {
+            AntiCheatClient->RegisterPeer(MemberPair.Key);
+            ++NonLocalCount;
+        }
+    }
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleSessionSettingsUpdated] Walked %d non-local participant(s); RegisterPeer dedupes already-registered peers."),
+        NonLocalCount);
+}
+
+void AEOSPlayerController::HandleParticipantSettingsUpdated(FName UpdatedSessionName, const FUniqueNetId& ParticipantId, const FOnlineSessionSettings& /*Settings*/)
+{
+    if (UpdatedSessionName != LobbyName)
+    {
+        return;
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    FUniqueNetIdPtr LocalNetId = Identity.IsValid() ? Identity->GetUniquePlayerId(0) : nullptr;
+    IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+    IEOSAntiCheatClient* AntiCheatClient = AntiCheat ? AntiCheat->GetClient() : nullptr;
+    if (!LocalNetId.IsValid() || !AntiCheatClient || ParticipantId == *LocalNetId)
+    {
+        return;
+    }
+
+    // RegisterPeer dedupes - also fires for member-attribute changes (presence, voice).
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleParticipantSettingsUpdated] Participant %s settings update - registering with EAC if new."),
+        *ParticipantId.ToString());
+    AntiCheatClient->RegisterPeer(ParticipantId.AsShared());
+}
+
 void AEOSPlayerController::HandleParticipantJoined(FName EOSLobbyName, const FUniqueNetId& NetId)
 {
     // Tutorial 7: Callback function called when a participant joins. Log the lobby name reported by the
     // callback rather than the local hardcoded member, so the message reflects what the OSS actually fired.
     UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleParticipantJoined] Player joined lobby %s."), *EOSLobbyName.ToString());
+
+    // Tutorial 9 (P2P branch): RegisterPeer with EAC. Lobby is the trusted PUID source - no JWT verify.
+    IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+    IEOSAntiCheatClient* Client = AntiCheat ? AntiCheat->GetClient() : nullptr;
+    if (!Client) { return; }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    FUniqueNetIdPtr LocalNetId = Identity.IsValid() ? Identity->GetUniquePlayerId(0) : nullptr;
+    if (LocalNetId.IsValid() && *LocalNetId == NetId)
+    {
+        return;
+    }
+    Client->RegisterPeer(NetId.AsShared());
 }
 
 void AEOSPlayerController::HandleParticipantLeft(FName EOSLobbyName, const FUniqueNetId& NetId, EOnSessionParticipantLeftReason LeaveReason)
 {
     // Tutorial 7: Callback function called when a participant leaves. LeaveReason tells us why (Left / Disconnected / Kicked / Closed).
     UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleParticipantLeft] Player left lobby %s."), *EOSLobbyName.ToString());
+
+    // Tutorial 9 (P2P branch): UnregisterPeer so EAC stops expecting heartbeats.
+    IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+    IEOSAntiCheatClient* Client = AntiCheat ? AntiCheat->GetClient() : nullptr;
+    if (Client)
+    {
+        Client->UnregisterPeer(NetId.AsShared());
+    }
+}
+
+void AEOSPlayerController::StartAntiCheatPeerSession()
+{
+    IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+    IEOSAntiCheatClient* Client = AntiCheat ? AntiCheat->GetClient() : nullptr;
+    if (!Client)
+    {
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::StartAntiCheatPeerSession] AntiCheat client interface unavailable."));
+        return;
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    FUniqueNetIdPtr LocalNetId = Identity.IsValid() ? Identity->GetUniquePlayerId(0) : nullptr;
+    if (!LocalNetId.IsValid())
+    {
+        // Caller is responsible for sequencing this after EOS Connect login.
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::StartAntiCheatPeerSession] No local net id - login should have completed before calling this."));
+        return;
+    }
+
+    Client->BeginSession(IEOSAntiCheatClient::EMode::PeerToPeer, LocalNetId.ToSharedRef());
+}
+
+void AEOSPlayerController::BindAntiCheatViolationDelegate()
+{
+    IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+    if (!AntiCheat)
+    {
+        return;
+    }
+
+    // Idempotent: if a stale handle is still on this PC (shouldn't happen,
+    // but defensive), drop it before re-binding to avoid leaking a slot.
+    if (AntiCheatViolationDelegateHandle.IsValid())
+    {
+        AntiCheat->OnViolation().Remove(AntiCheatViolationDelegateHandle);
+    }
+    AntiCheatViolationDelegateHandle = AntiCheat->OnViolation().AddUObject(this, &ThisClass::HandleAntiCheatViolationP2P);
+}
+
+void AEOSPlayerController::UnbindAntiCheatViolationDelegate()
+{
+    IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+    if (AntiCheat && AntiCheatViolationDelegateHandle.IsValid())
+    {
+        AntiCheat->OnViolation().Remove(AntiCheatViolationDelegateHandle);
+        AntiCheatViolationDelegateHandle.Reset();
+    }
+    // Plugin shutdown calls Client->EndSession(); matches the server-mode lifetime model.
+}
+
+void AEOSPlayerController::HandleAntiCheatViolationP2P(const FUniqueNetIdPtr& OffendingPlayer, const FString& Reason)
+{
+    // PEER_SELF: local SDK flagged us. Log + exit; other peers' SDKs drop us independently.
+    if (!OffendingPlayer.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleAntiCheatViolationP2P] Local client flagged: %s - exiting."), *Reason);
+        if (UWorld* World = GetWorld())
+        {
+            World->GetTimerManager().SetTimerForNextTick([]
+            {
+                FGenericPlatformMisc::RequestExit(false);
+            });
+        }
+        return;
+    }
+
+    const ENetMode Mode = GetNetMode();
+    if (Mode == NM_ListenServer)
+    {
+        // Lobby host has kick authority; offender's own SDK exits via PEER_SELF.
+        AGameModeBase* GM = GetWorld() ? GetWorld()->GetAuthGameMode() : nullptr;
+        AGameSession* GS = GM ? GM->GameSession : nullptr;
+        if (!GS) { return; }
+
+        for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+        {
+            APlayerController* PC = It->Get();
+            if (PC && PC->PlayerState && PC->PlayerState->GetUniqueId() == *OffendingPlayer)
+            {
+                UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleAntiCheatViolationP2P] Host kicking %s: %s"), *PC->GetName(), *Reason);
+                GS->KickPlayer(PC, FText::FromString(Reason));
+                return;
+            }
+        }
+        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSPlayerController::HandleAntiCheatViolationP2P] Host: no PC for %s - offender may have already left."),
+            *OffendingPlayer->ToString());
+        return;
+    }
+
+    // Non-host: no kick authority; relay to host for telemetry. Host's SDK does the drop.
+    UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSPlayerController::HandleAntiCheatViolationP2P] Peer violation observed on %s: %s"),
+        *OffendingPlayer->ToString(), *Reason);
+    Server_PeerViolationDetected(FUniqueNetIdRepl(OffendingPlayer), Reason);
 }
 #endif

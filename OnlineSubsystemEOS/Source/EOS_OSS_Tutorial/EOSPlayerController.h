@@ -128,24 +128,27 @@ protected:
 	FDelegateHandle ReadPlayerDataFileDelegateHandle;
 
 public:
-	// Server -> client RPC delivering a per-player EOS RTC join-room token and media-server URL.
-	// Declared outside the P2PMODE guard because UHT does not allow UFUNCTION inside preprocessor
-	// blocks; the _Implementation body is guarded in the .cpp instead.
+	// RPCs are declared outside the P2PMODE guard because UHT can't see preprocessor
+	// blocks; the _Implementation bodies are #if-guarded in the .cpp instead.
+
+	// Server -> client RPC: per-player EOS RTC room name + participant token + media-server URL.
 	UFUNCTION(Client, Reliable)
 	void Client_ReceiveVoiceCredentials(const FString& RoomName, const FString& ParticipantToken, const FString& ClientBaseUrl);
 
-	// Tutorial 9: Client -> server RPC firing once the client has finished loading. Carries the
-	// client's EOS Connect IdToken JWT so the server can VerifyIdToken before trusting the PUID
-	// it's about to register with AntiCheat. Declared outside P2PMODE per UHT.
+	// Tutorial 9: client signals load-complete + sends its EOS Connect IdToken for VerifyIdToken.
 	UFUNCTION(Server, Reliable)
 	void Server_NotifyAntiCheatReady(const FString& IdTokenJwt);
 
-	// Tutorial 9: Bidirectional relay for opaque EOS AntiCheat SDK bytes over Unreal RPCs.
+	// Tutorial 9: bidirectional opaque EOS AntiCheat byte relay.
 	UFUNCTION(Server, Reliable)
 	void Server_AntiCheatMessage(const TArray<uint8>& Bytes);
 
 	UFUNCTION(Client, Reliable)
 	void Client_AntiCheatMessage(const TArray<uint8>& Bytes);
+
+	// Tutorial 9 (P2P branch): non-host's violation report - host logs for telemetry only.
+	UFUNCTION(Server, Reliable)
+	void Server_PeerViolationDetected(const FUniqueNetIdRepl& OffendingPlayer, const FString& Reason);
 
 #if !P2PMODE
 protected:
@@ -181,7 +184,7 @@ protected:
 #if P2PMODE
 	// Hardcoded name for the lobby.
 	FName LobbyName = "LobbyName";
-	// Function to create an EOS session. 
+	// Function to create an EOS session.
 	void CreateLobby(FName KeyName = "KeyName", FString KeyValue = "KeyValue");
 
 	// Callback function. This function will run when creating the session completes.
@@ -207,5 +210,27 @@ protected:
 	// Delegate to bind callback event for participant left.
 	FDelegateHandle ParticipantLeftDelegateHandle;
 
+	// Tutorial 9 (P2P branch): mesh AC - every peer registers every other peer.
+	// Each SDK fires OnPeerActionRequired independently; lobby host KickPlayers the offender.
+	//
+	// StartAntiCheatPeerSession is the one-shot trigger from HandleLoginCompleted
+	// (after the local NetId resolves). Bind/Unbind are the per-PC delegate hooks
+	// driven from BeginPlay / EndPlay, including the post-travel rebind on joiners.
+	void StartAntiCheatPeerSession();
+	void BindAntiCheatViolationDelegate();
+	void UnbindAntiCheatViolationDelegate();
+	void HandleAntiCheatViolationP2P(const FUniqueNetIdPtr& OffendingPlayer, const FString& Reason);
+	FDelegateHandle AntiCheatViolationDelegateHandle;
+
+	// Tutorial 9 (P2P branch): catches participants already in the lobby on join,
+	// which the post-join CopyLobbyData fire populates into MemberSettings.
+	void HandleSessionSettingsUpdated(FName SessionName, const FOnlineSessionSettings& UpdatedSettings);
+	FDelegateHandle SessionSettingsUpdatedDelegateHandle;
+
+	// Tutorial 9 (P2P branch): catches LATER-arriving peers the OSS routes through
+	// SettingsUpdated rather than ParticipantJoined (UpdateOrAddLobbyMember -
+	// !bWasLobbyMemberAdded path). HandleParticipantJoined misses those.
+	void HandleParticipantSettingsUpdated(FName SessionName, const FUniqueNetId& ParticipantId, const FOnlineSessionSettings& Settings);
+	FDelegateHandle ParticipantSettingsUpdatedDelegateHandle;
 #endif
 };

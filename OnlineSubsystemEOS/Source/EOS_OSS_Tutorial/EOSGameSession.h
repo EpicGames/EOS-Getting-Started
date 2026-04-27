@@ -39,8 +39,8 @@ protected:
 	// Hardcoding the session name for this tutorial. 
 	FName SessionName = "SessionName"; 
 
-	// Hardcoding the max number of players in a session. 
-	const int MaxNumberOfPlayersInSession = 2;
+	// Hardcoding the max number of players in a session.
+	const int MaxNumberOfPlayersInSession = 3;
 
 	// Variable to keep track of the number of players in a session.
 	int NumberOfPlayersInSession = 0;
@@ -114,8 +114,9 @@ protected:
 	// Finds the AEOSPlayerController whose PlayerState owns the supplied FUniqueNetId.
 	class AEOSPlayerController* FindPlayerControllerByNetId(const FUniqueNetIdRef& PlayerId) const;
 
-	// Tutorial 9: Bound to IEOSAntiCheat::OnViolation. Kicks the offending player via AGameSession::KickPlayer.
-	void HandleAntiCheatViolation(const FUniqueNetIdRef& PlayerId, const FString& Reason);
+	// Tutorial 9: Bound to IEOSAntiCheat::OnViolation. Kicks via AGameSession::KickPlayer.
+	// PlayerId null = PEER_SELF (P2P only); never reaches server-mode.
+	void HandleAntiCheatViolation(const FUniqueNetIdPtr& PlayerId, const FString& Reason);
 
 	// Tutorial 9: Bound to IEOSAntiCheatServer::OnMessageToClient. Forwards the opaque bytes
 	// to the owning AEOSPlayerController via its Client_AntiCheatMessage reliable RPC.

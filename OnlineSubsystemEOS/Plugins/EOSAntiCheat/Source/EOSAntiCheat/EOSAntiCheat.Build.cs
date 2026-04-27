@@ -17,10 +17,8 @@ public class EOSAntiCheat : ModuleRules
 			"Engine",
 		});
 
-		// OnlineSubsystemEOS gives us the already-initialized EOS_HPlatform via
-		// IOnlineSubsystemEOS::GetEOSPlatformHandle(); EOSShared exposes the helper
-		// types (IEOSPlatformHandlePtr etc.); EOSSDK is the C headers for the
-		// EOS_AntiCheat{Server,Client} interfaces we wrap.
+		// OnlineSubsystemEOS gives us the EOS_HPlatform; EOSShared the helper types;
+		// EOSSDK the C headers for EOS_AntiCheat{Server,Client}.
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"OnlineSubsystem",
@@ -30,12 +28,12 @@ public class EOSAntiCheat : ModuleRules
 			"EOSSDK",
 		});
 
-		// Intentionally no RuntimeDependencies for EAC runtime files. The
-		// bootstrapper + EasyAntiCheat/ directory must live at the package
-		// ROOT (where the integrity tool's -target_game_dir points), not
-		// inside $(ProjectDir)/Binaries/Win64. UE's RuntimeDependencies path
-		// variables don't resolve to the package root, so file placement
-		// moved to the post-stage UAT command (ProtectEOSPackage) - one
-		// pass does copy + Settings.json + integrity tool together.
+		// No RuntimeDependencies: bootstrapper + EasyAntiCheat/ must live at the
+		// package ROOT (integrity tool's -target_game_dir), not Binaries/Win64.
+		// UE's path variables don't resolve to the package root, so file placement
+		// moved to ProtectEOSPackage (post-stage UAT command).
+
+		// Must mirror EOS_OSS_Tutorial.Build.cs - gates the plugin's peer-mode APIs.
+		PrivateDefinitions.Add("P2PMODE=1");
 	}
 }
