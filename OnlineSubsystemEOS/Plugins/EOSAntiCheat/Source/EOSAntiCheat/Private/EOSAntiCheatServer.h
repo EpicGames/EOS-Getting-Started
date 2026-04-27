@@ -5,6 +5,8 @@
 #include "IEOSAntiCheatServer.h"
 #include "IEOSAntiCheat.h"  // FOnAntiCheatViolation
 
+#if !P2PMODE
+
 // Private header so it's fine to pull the SDK umbrella - the public
 // IEOSAntiCheatServer surface stays SDK-free.
 #include "eos_sdk.h"
@@ -58,3 +60,5 @@ private:
 	// from inside our callbacks without a runtime IEOSAntiCheat::Get() lookup.
 	FOnAntiCheatViolation& ViolationDelegate;
 };
+
+#endif // !P2PMODE

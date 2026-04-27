@@ -7,7 +7,9 @@
 #include "Modules/ModuleInterface.h"
 #include "Online/CoreOnline.h"
 
+#if !P2PMODE
 class IEOSAntiCheatServer;
+#endif
 class IEOSAntiCheatClient;
 
 /**
@@ -54,8 +56,10 @@ public:
 	 */
 	static IEOSAntiCheat* Get();
 
+#if !P2PMODE
 	/** Server-side wrapper, or null if this build / configuration can't host one. */
 	virtual IEOSAntiCheatServer* GetServer() = 0;
+#endif
 
 	/** Client-side wrapper, or null if this build / configuration can't host one. */
 	virtual IEOSAntiCheatClient* GetClient() = 0;

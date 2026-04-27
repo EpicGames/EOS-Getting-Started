@@ -1,7 +1,9 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "IEOSAntiCheat.h"
+#if !P2PMODE
 #include "EOSAntiCheatServer.h"
+#endif
 #include "EOSAntiCheatClient.h"
 
 #include "Modules/ModuleManager.h"
@@ -35,14 +37,18 @@ public:
 	virtual void ShutdownModule() override;
 
 	// IEOSAntiCheat
+#if !P2PMODE
 	virtual IEOSAntiCheatServer* GetServer() override { return Server.Get(); }
+#endif
 	virtual IEOSAntiCheatClient* GetClient() override { return Client.Get(); }
 	virtual FOnAntiCheatViolation& OnViolation() override { return ViolationDelegate; }
 	virtual bool CopyLocalIdToken(const FUniqueNetIdRef& LocalUser, FString& OutJsonWebToken) override;
 	virtual void VerifyIdToken(const FUniqueNetIdRef& ClaimedUser, const FString& JsonWebToken, FOnIdTokenVerified OnCompleted) override;
 
 private:
+#if !P2PMODE
 	TUniquePtr<FEOSAntiCheatServer> Server;
+#endif
 	TUniquePtr<FEOSAntiCheatClient> Client;
 	FOnAntiCheatViolation ViolationDelegate;
 
@@ -95,9 +101,11 @@ void FEOSAntiCheat::StartupModule()
 		return;
 	}
 
+#if !P2PMODE
 	// The server wrapper needs the module's violation delegate so it can broadcast
 	// from inside its own callbacks without a separate IEOSAntiCheat::Get() lookup.
 	Server = MakeUnique<FEOSAntiCheatServer>(Platform, ViolationDelegate);
+#endif
 
 	// No client-side AntiCheat interface on dedicated servers - skip the wrapper.
 	if (!IsRunningDedicatedServer())
@@ -105,7 +113,7 @@ void FEOSAntiCheat::StartupModule()
 		Client = MakeUnique<FEOSAntiCheatClient>(Platform);
 	}
 
-	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheat::StartupModule] EOS AntiCheat plugin initialized (server + client wrappers created, no session yet)."));
+	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheat::StartupModule] EOS AntiCheat plugin initialized."));
 #endif
 }
 
@@ -115,7 +123,9 @@ void FEOSAntiCheat::ShutdownModule()
 	// Reverse order: client/server wrappers first (they may hold SDK handles
 	// derived from the platform), then release the platform reference itself.
 	Client.Reset();
+#if !P2PMODE
 	Server.Reset();
+#endif
 	PlatformHandle.Reset();
 
 	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheat::ShutdownModule] EOS AntiCheat plugin shut down."));

@@ -3,6 +3,8 @@
 #include "EOSAntiCheatServer.h"
 #include "IEOSAntiCheat.h"
 
+#if !P2PMODE
+
 #include "OnlineSubsystemEOSTypesPublic.h"  // IUniqueNetIdEOS - to read ProductUserId off game-side FUniqueNetIds.
 #include "EOSShared.h"                       // LexToString(EOS_ProductUserId).
 
@@ -327,3 +329,5 @@ void FEOSAntiCheatServer::FlagForKick(EOS_AntiCheatCommon_ClientHandle ClientHan
 	// ban, log telemetry). AEOSGameSession subscribes and calls KickPlayer.
 	ViolationDelegate.Broadcast(*PlayerIdPtr, Reason);
 }
+
+#endif // !P2PMODE

@@ -5,6 +5,8 @@
 #include "CoreMinimal.h"
 #include "Online/CoreOnline.h"
 
+#if !P2PMODE
+
 /**
  * Public surface of the plugin's server-side AntiCheat wrapper. Wraps an
  * EOS_HAntiCheatServer handle and exposes lifecycle, per-client registration,
@@ -61,3 +63,5 @@ public:
 	DECLARE_MULTICAST_DELEGATE_TwoParams(FOnMessageToClient, const FUniqueNetIdRef& /*PlayerId*/, const TArray<uint8>& /*Bytes*/);
 	virtual FOnMessageToClient& OnMessageToClient() = 0;
 };
+
+#endif // !P2PMODE
