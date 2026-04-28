@@ -117,3 +117,57 @@ feature adds peer-specific lobby attributes that require signed identity
 (custom lobby metadata, peer-issued match tokens, etc.), wire the
 existing `IEOSAntiCheat::VerifyIdToken` into the peer-register path the
 same way the server-mode branch does before `RegisterClient`.
+
+### 6. Consolidate the two local-creds config files
+
+Source: Tutorial 10 (ecom — surfaced when adding the `EcomClient` artifact).
+
+EOS artifact credentials live in two parallel gitignored files that each
+serve a different config-load path:
+
+- `Restricted/NoRedist/Config/DefaultEngine.ini` — read by the editor
+  / non-packaged runs (UE's standard NoRedist overlay).
+- `Config/Windows/WindowsEngine.ini` — read at cook time and baked into
+  the Windows pak; the only file the runtime sees in packaged builds.
+
+Adding a new artifact requires editing both, with no automation linking
+them. We hit this with `EcomClient`: editor-time worked from NoRedist,
+but packaged runtime hit `GetSelectedArtifactSettings ... no settings
+found` until the same entry was added to `Config/Windows/WindowsEngine.ini`.
+
+**Options to consider during the bug-fix / cleanup pass:**
+
+1. **Drop NoRedist for credentials.** `Config/Windows/WindowsEngine.ini`
+   is a UE-standard platform overlay that's also read at editor time on
+   Windows hosts — verify and delete the NoRedist artifact entries. EAC
+   certs at `Restricted/NoRedist/EACCerts/` stay (that's a non-config
+   asset path passed via `-CertDir`).
+2. **Keep NoRedist, drop the Windows overlay.** Add `Restricted/NoRedist/`
+   to the cooker's "include in stage" list so its files end up in the pak.
+   Riskier — NoRedist is conventionally never-shipped.
+
+(1) is simpler and matches the convention: "platform overlays for
+per-platform credentials, NoRedist for actively-don't-redistribute
+files." Good cleanup target during the bug-fix pass.
+
+### 7. Add tutorial-section banner headers + renumber tutorials
+
+Source: Tutorial 10 (ecom) introduced a clear visual banner over its
+function block in `EOSPlayerController.cpp`:
+
+```cpp
+// =====================================================================
+// Tutorial 10: Ecom (Store + Purchase + Entitlements) - new flow.
+// =====================================================================
+```
+
+Apply the same shape to every other tutorial's function group across
+the project (login, sessions, voice, AC server-mode, AC P2P branch,
+title / player data storage, stats / leaderboards / achievements, etc.).
+Makes the .cpps scannable and gives learners a consistent "this is
+where Tutorial N lives" landmark.
+
+Tutorial numbers themselves are also being reordered by the user — the
+new sequence will land at the same time as this banner pass, so existing
+`Tutorial N:` per-line markers need updating in lockstep with the headers.
+

@@ -8,6 +8,7 @@
 #include "OnlineSessionSettings.h" // UE 5.8: FOnlineSessionSearchResult is only forward-declared by OnlineSessionInterface.h - include the full definition here.
 #include "Online/OnlineSessionNames.h" // SEARCH_LOBBIES FName used by the P2P find-lobby branch (no longer pulled in transitively in UE 5.8).
 #include "Interfaces/OnlineIdentityInterface.h"
+#include "Interfaces/OnlineEntitlementsInterface.h" // Tutorial 10: IOnlineEntitlements + FOnlineEntitlement.
 #include "Containers/Array.h"
 #include "Kismet/GameplayStatics.h"
 #include "Serialization/BufferArchive.h"
@@ -167,6 +168,16 @@ void AEOSPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
             UserCloud->ClearOnReadUserFileCompleteDelegate_Handle(ReadPlayerDataFileDelegateHandle);
             ReadPlayerDataFileDelegateHandle.Reset();
         }
+
+        // Tutorial 10: Entitlements interface uses the delegate-list pattern,
+        // unlike Store/Purchase which take callbacks per call. Clear our handle
+        // so the OSS multicast list doesn't retain a stale binding.
+        IOnlineEntitlementsPtr Entitlements = Subsystem->GetEntitlementsInterface();
+        if (Entitlements.IsValid() && QueryEntitlementsDelegateHandle.IsValid())
+        {
+            Entitlements->ClearOnQueryEntitlementsCompleteDelegate_Handle(QueryEntitlementsDelegateHandle);
+            QueryEntitlementsDelegateHandle.Reset();
+        }
     }
 
     Super::EndPlay(EndPlayReason);
@@ -305,6 +316,12 @@ void AEOSPlayerController::HandleLoginCompleted(int32 LocalUserNum, bool bWasSuc
         LoadTitleData();  // Load any game-related data (in this case a string output to logs).
         LoadPlayerData(); // Load save-game data.
         FindSessions();   // For convenience a session is found in sequence here. In a real game this would be done via game UI. Goal here is to show EOS functionality, not game design.
+
+        // Tutorial 10: Fan out the new Ecom flow's three queries. Catalog offers,
+        // existing receipts, and current entitlements. See header for safety notes.
+        QueryStoreOffers();
+        QueryStoreReceipts();
+        QueryEntitlements();
 
 #if !P2PMODE
         // Tutorial 9: Login succeeded so the NetId is ready - start the AC session.
@@ -1581,3 +1598,341 @@ void AEOSPlayerController::HandleAntiCheatViolationP2P(const FUniqueNetIdPtr& Of
     Server_PeerViolationDetected(FUniqueNetIdRepl(OffendingPlayer), Reason);
 }
 #endif
+
+// =====================================================================
+// Tutorial 10: Ecom (Store + Purchase + Entitlements) - new flow.
+// =====================================================================
+
+void AEOSPlayerController::QueryStoreOffers()
+{
+    // EOS doesn't support filtered category queries via OSS; pass an empty
+    // filter to retrieve all offers.
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    IOnlineStoreV2Ptr Store = Subsystem ? Subsystem->GetStoreV2Interface() : nullptr;
+    if (!Identity.IsValid() || !Store.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::QueryStoreOffers] Identity or StoreV2 interface null."));
+        return;
+    }
+
+    const FUniqueNetIdPtr LocalNetId = Identity->GetUniquePlayerId(0);
+    if (!LocalNetId.IsValid() || Identity->GetLoginStatus(0) != ELoginStatus::Type::LoggedIn)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::QueryStoreOffers] Player not logged in."));
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::QueryStoreOffers] Querying catalog offers..."));
+
+    FOnlineStoreFilter EmptyFilter = {};
+    Store->QueryOffersByFilter(*LocalNetId, EmptyFilter,
+        FOnQueryOnlineStoreOffersComplete::CreateUObject(this, &ThisClass::HandleQueryStoreOffersCompleted));
+}
+
+void AEOSPlayerController::HandleQueryStoreOffersCompleted(bool bWasSuccessful, const TArray<FUniqueOfferId>& OfferIds, const FString& Error)
+{
+    if (!bWasSuccessful)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleQueryStoreOffersCompleted] Failed: %s"), *Error);
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleQueryStoreOffersCompleted] Logged %d offer(s)."), OfferIds.Num());
+
+    // OSS caches the full FOnlineStoreOffer; GetOffer(id) returns it without re-querying.
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineStoreV2Ptr Store = Subsystem ? Subsystem->GetStoreV2Interface() : nullptr;
+    if (!Store.IsValid()) { return; }
+
+    for (const FUniqueOfferId& OfferId : OfferIds)
+    {
+        TSharedPtr<FOnlineStoreOffer> Offer = Store->GetOffer(OfferId);
+        if (Offer.IsValid())
+        {
+            UE_LOG(LogEOSOSSTutorial, VeryVerbose, TEXT("[AEOSPlayerController::HandleQueryStoreOffersCompleted] OfferId=%s Title=\"%s\" Price=%s"),
+                *OfferId, *Offer->Title.ToString(), *Offer->PriceText.ToString());
+        }
+    }
+}
+
+void AEOSPlayerController::QueryStoreReceipts(bool bRestoreReceipts)
+{
+    // bRestoreReceipts=true forces a backend re-fetch instead of OSS's cached
+    // list (typically used after reinstall when local cache is empty).
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    IOnlinePurchasePtr Purchase = Subsystem ? Subsystem->GetPurchaseInterface() : nullptr;
+    if (!Identity.IsValid() || !Purchase.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::QueryStoreReceipts] Identity or Purchase interface null."));
+        return;
+    }
+
+    const FUniqueNetIdPtr LocalNetId = Identity->GetUniquePlayerId(0);
+    if (!LocalNetId.IsValid() || Identity->GetLoginStatus(0) != ELoginStatus::Type::LoggedIn)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::QueryStoreReceipts] Player not logged in."));
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::QueryStoreReceipts] Querying receipts (bRestoreReceipts=%s)..."),
+        bRestoreReceipts ? TEXT("true") : TEXT("false"));
+
+    Purchase->QueryReceipts(*LocalNetId, bRestoreReceipts,
+        FOnQueryReceiptsComplete::CreateUObject(this, &ThisClass::HandleQueryStoreReceiptsCompleted));
+}
+
+void AEOSPlayerController::HandleQueryStoreReceiptsCompleted(const FOnlineError& Error)
+{
+    if (!Error.bSucceeded)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleQueryStoreReceiptsCompleted] Failed: %s"), *Error.ToLogString());
+        return;
+    }
+
+    // Re-fetch the local user since QueryReceipts' callback signature only
+    // surfaces the FOnlineError, not the user it was called for.
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    IOnlinePurchasePtr Purchase = Subsystem ? Subsystem->GetPurchaseInterface() : nullptr;
+    if (!Identity.IsValid() || !Purchase.IsValid()) { return; }
+
+    const FUniqueNetIdPtr LocalNetId = Identity->GetUniquePlayerId(0);
+    if (!LocalNetId.IsValid()) { return; }
+
+    TArray<FPurchaseReceipt> Receipts;
+    Purchase->GetReceipts(*LocalNetId, Receipts);
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleQueryStoreReceiptsCompleted] Logged %d receipt(s)."), Receipts.Num());
+
+    // OSS-EOS quirks for the QueryReceipts path. Three fields stay empty
+    // on this code path even though they exist on the structs:
+    //   - OfferEntry.OfferId    : OSS hardcodes "" (Engine/.../OnlinePurchaseEOS.cpp:127).
+    //   - Receipt.TransactionId : QueryReceipts uses EOS_Ecom_QueryOwnershipBySandboxIds
+    //                              which returns ownership state, not a transaction.
+    //   - LineItem.ItemName     : QueryReceipts skips EOS_Ecom_CopyItemById
+    //                              (only the Checkout path calls it).
+    // Populated data: LineItems[0].UniqueId = EOS_Ecom_CatalogItemId.
+    //
+    // QueryReceipts vs QueryEntitlements:
+    //   QueryReceipts     -> durable / non-consumable content (DLC, expansions).
+    //   QueryEntitlements -> consumable content + consumption state
+    //                        (ConsumedCount tracks redemption).
+    // For Name / bIsConsumable / ConsumedCount / EndDate, see
+    // HandleQueryEntitlementsCompleted (wraps EOS_Ecom_CopyEntitlementByIndex).
+    for (const FPurchaseReceipt& Receipt : Receipts)
+    {
+        for (const FPurchaseReceipt::FReceiptOfferEntry& OfferEntry : Receipt.ReceiptOffers)
+        {
+            if (OfferEntry.LineItems.IsEmpty()) { continue; }
+            const FPurchaseReceipt::FLineItemInfo& LineItem = OfferEntry.LineItems[0];
+            UE_LOG(LogEOSOSSTutorial, VeryVerbose, TEXT("[AEOSPlayerController::HandleQueryStoreReceiptsCompleted] TransactionId=%s OwnedItemId=%s ItemName=\"%s\""),
+                *Receipt.TransactionId, *LineItem.UniqueId, *LineItem.ItemName);
+        }
+    }
+}
+
+void AEOSPlayerController::CheckoutOffer(const FString& OfferId, int32 Quantity, bool bConsumable)
+{
+    // Tutorial 10: Open the EGS wallet overlay so the player can buy this offer.
+    // This call returns immediately; the result fires asynchronously when the
+    // player closes the overlay (success on confirm, failure on cancel /
+    // network error). REQUIRES a packaged Win64 client - the EOS overlay is not
+    // available in PIE.
+    if (OfferId.IsEmpty())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::CheckoutOffer] Empty OfferId."));
+        return;
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    IOnlinePurchasePtr Purchase = Subsystem ? Subsystem->GetPurchaseInterface() : nullptr;
+    if (!Identity.IsValid() || !Purchase.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::CheckoutOffer] Identity or Purchase interface null."));
+        return;
+    }
+
+    const FUniqueNetIdPtr LocalNetId = Identity->GetUniquePlayerId(0);
+    if (!LocalNetId.IsValid() || Identity->GetLoginStatus(0) != ELoginStatus::Type::LoggedIn)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::CheckoutOffer] Player not logged in."));
+        return;
+    }
+
+    FPurchaseCheckoutRequest Request = {};
+    // EOS doesn't use OfferNamespace - empty string is correct.
+    Request.AddPurchaseOffer(TEXT(""), OfferId, Quantity, bConsumable);
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::CheckoutOffer] Opening checkout overlay for OfferId=%s Quantity=%d bConsumable=%s..."),
+        *OfferId, Quantity, bConsumable ? TEXT("true") : TEXT("false"));
+
+    Purchase->Checkout(*LocalNetId, Request,
+        FOnPurchaseCheckoutComplete::CreateUObject(this, &ThisClass::HandleCheckoutCompleted));
+}
+
+void AEOSPlayerController::HandleCheckoutCompleted(const FOnlineError& Error, const TSharedRef<FPurchaseReceipt>& Receipt)
+{
+    if (!Error.bSucceeded)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleCheckoutCompleted] Failed: %s"), *Error.ToLogString());
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleCheckoutCompleted] Success - TransactionId=%s, %d ReceiptOffers."),
+        *Receipt->TransactionId, Receipt->ReceiptOffers.Num());
+
+    // OSS-EOS quirk: FReceiptOfferEntry::OfferId is hardcoded "" (see
+    // Engine/.../OnlinePurchaseEOS.cpp:127). The EOS Ecom SDK only surfaces
+    // the resulting EOS_Ecom_Entitlement, not the source offer. Data lives
+    // on LineItems[0]:
+    //   UniqueId        = EOS_Ecom_CatalogItemId
+    //   ValidationInfo  = EOS_Ecom_EntitlementId  (pass to RedeemEntitlement;
+    //                                              empty if already redeemed)
+    //   ItemName        = catalog item title text
+    for (const FPurchaseReceipt::FReceiptOfferEntry& OfferEntry : Receipt->ReceiptOffers)
+    {
+        if (OfferEntry.LineItems.IsEmpty()) { continue; }
+        const FPurchaseReceipt::FLineItemInfo& LineItem = OfferEntry.LineItems[0];
+        UE_LOG(LogEOSOSSTutorial, VeryVerbose, TEXT("[AEOSPlayerController::HandleCheckoutCompleted] CatalogItemId=%s EntitlementId=%s ItemName=\"%s\""),
+            *LineItem.UniqueId, *LineItem.ValidationInfo, *LineItem.ItemName);
+    }
+
+    // Re-query entitlements so the new purchase shows up in the cached list.
+    QueryEntitlements();
+}
+
+void AEOSPlayerController::QueryEntitlements()
+{
+    // Tutorial 10: Fetch the player's entitlements (granted catalog items) for
+    // this artifact. Unlike Store/Purchase which take a callback per call, the
+    // entitlements interface uses the delegate-list pattern.
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    IOnlineEntitlementsPtr Entitlements = Subsystem ? Subsystem->GetEntitlementsInterface() : nullptr;
+    if (!Identity.IsValid() || !Entitlements.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::QueryEntitlements] Identity or Entitlements interface null."));
+        return;
+    }
+
+    const FUniqueNetIdPtr LocalNetId = Identity->GetUniquePlayerId(0);
+    if (!LocalNetId.IsValid() || Identity->GetLoginStatus(0) != ELoginStatus::Type::LoggedIn)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::QueryEntitlements] Player not logged in."));
+        return;
+    }
+
+    // Bind the completion callback before kicking off the query so we don't
+    // miss a fast-fail. Namespace is empty - EOS doesn't use it.
+    QueryEntitlementsDelegateHandle =
+        Entitlements->AddOnQueryEntitlementsCompleteDelegate_Handle(
+            FOnQueryEntitlementsCompleteDelegate::CreateUObject(this, &ThisClass::HandleQueryEntitlementsCompleted));
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::QueryEntitlements] Querying entitlements..."));
+    if (!Entitlements->QueryEntitlements(*LocalNetId, TEXT("")))
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::QueryEntitlements] QueryEntitlements call failed."));
+        Entitlements->ClearOnQueryEntitlementsCompleteDelegate_Handle(QueryEntitlementsDelegateHandle);
+        QueryEntitlementsDelegateHandle.Reset();
+    }
+}
+
+void AEOSPlayerController::HandleQueryEntitlementsCompleted(bool bWasSuccessful, const FUniqueNetId& UserId, const FString& Namespace, const FString& Error)
+{
+    // Namespace is unused on EOS - keep the signature for OSS conformance.
+    (void)Namespace;
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineEntitlementsPtr Entitlements = Subsystem ? Subsystem->GetEntitlementsInterface() : nullptr;
+    if (Entitlements.IsValid() && QueryEntitlementsDelegateHandle.IsValid())
+    {
+        Entitlements->ClearOnQueryEntitlementsCompleteDelegate_Handle(QueryEntitlementsDelegateHandle);
+        QueryEntitlementsDelegateHandle.Reset();
+    }
+
+    if (!bWasSuccessful)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleQueryEntitlementsCompleted] Failed: %s"), *Error);
+        return;
+    }
+
+    if (!Entitlements.IsValid()) { return; }
+
+    TArray<TSharedRef<FOnlineEntitlement>> AllEntitlements;
+    Entitlements->GetAllEntitlements(UserId, TEXT(""), AllEntitlements);
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleQueryEntitlementsCompleted] Logged %d entitlement(s)."), AllEntitlements.Num());
+
+    for (const TSharedRef<FOnlineEntitlement>& Entitlement : AllEntitlements)
+    {
+        UE_LOG(LogEOSOSSTutorial, VeryVerbose, TEXT("[AEOSPlayerController::HandleQueryEntitlementsCompleted] Id=%s Name=%s ItemId=%s bIsConsumable=%s ConsumedCount=%d EndDate=%s"),
+            *Entitlement->Id, *Entitlement->Name, *Entitlement->ItemId,
+            Entitlement->bIsConsumable ? TEXT("true") : TEXT("false"),
+            Entitlement->ConsumedCount, *Entitlement->EndDate);
+    }
+}
+
+void AEOSPlayerController::RedeemEntitlement(const FString& EntitlementId)
+{
+    // Tutorial 10: Redeem (consume) a granted entitlement. Wraps
+    // IOnlinePurchase::FinalizeReceiptValidationInfo. See header for the
+    // safety story - production titles redeem on a trusted backend.
+    if (EntitlementId.IsEmpty())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::RedeemEntitlement] Empty EntitlementId."));
+        return;
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    IOnlinePurchasePtr Purchase = Subsystem ? Subsystem->GetPurchaseInterface() : nullptr;
+    if (!Identity.IsValid() || !Purchase.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::RedeemEntitlement] Identity or Purchase interface null."));
+        return;
+    }
+
+    const FUniqueNetIdPtr LocalNetId = Identity->GetUniquePlayerId(0);
+    if (!LocalNetId.IsValid() || Identity->GetLoginStatus(0) != ELoginStatus::Type::LoggedIn)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::RedeemEntitlement] Player not logged in."));
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::RedeemEntitlement] Redeeming entitlement %s..."), *EntitlementId);
+
+    // OSS signature is FinalizeReceiptValidationInfo(FString& InReceiptValidationInfo, ...) -
+    // non-const ref because the call can mutate the validation info. Make a
+    // local mutable copy so our public API can keep the idiomatic const-ref param.
+    FString MutableEntitlementId = EntitlementId;
+    Purchase->FinalizeReceiptValidationInfo(*LocalNetId, MutableEntitlementId,
+        FOnFinalizeReceiptValidationInfoComplete::CreateWeakLambda(this,
+            [](const FOnlineError& Error, const FString& ValidationInfo)
+            {
+                if (Error.bSucceeded)
+                {
+                    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::RedeemEntitlement] Success."));
+                }
+                else
+                {
+                    UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::RedeemEntitlement] Failed: %s"), *Error.ToLogString());
+                }
+            }));
+}
+
+void AEOSPlayerController::TestCheckoutOffer(const FString& OfferId)
+{
+    // Console wrapper around CheckoutOffer. Already-owned items ($0 base game)
+    // and items still pending backend processing will fail the checkout call.
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::TestCheckoutOffer] Console-triggered checkout for OfferId=%s"), *OfferId);
+    CheckoutOffer(OfferId);
+}
+
+void AEOSPlayerController::TestRedeemEntitlement(const FString& EntitlementId)
+{
+    // Console wrapper around RedeemEntitlement. Already-redeemed entitlements
+    // (ConsumedCount > 0) won't re-redeem.
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::TestRedeemEntitlement] Console-triggered redeem for EntitlementId=%s"), *EntitlementId);
+    RedeemEntitlement(EntitlementId);
+}

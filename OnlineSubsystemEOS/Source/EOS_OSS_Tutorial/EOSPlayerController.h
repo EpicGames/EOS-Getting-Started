@@ -6,6 +6,8 @@
 #include "GameFramework/PlayerController.h"
 #include "Interfaces/OnlineSessionInterface.h" //Don't like declaring this here but getting weird compiler error with EOnJoinSessionCompleteResult
 #include "OnlineSessionSettings.h"             // FOnlineSessionSearchResult - used by value in TOptional member below.
+#include "Interfaces/OnlineStoreInterfaceV2.h"  // Tutorial 10: FUniqueOfferId in QueryStoreOffers signatures.
+#include "Interfaces/OnlinePurchaseInterface.h" // Tutorial 10: FPurchaseReceipt + FOnlineError in CheckoutOffer/QueryStoreReceipts signatures.
 #include "EOSPlayerController.generated.h"
 
 /** New log category for this tutorial. Bump verbosity with `log LogEOSOSSTutorial Verbose` (or VeryVerbose) to see success-path messages. */
@@ -121,11 +123,64 @@ protected:
 	// Delegate to bind callback event for player file storage enumeration.
 	FDelegateHandle EnumPlayerFilesDelegateHandle;
 
-	// Callback function. This function is ran when a player data storage file has been read and the contents can be retrieved.  
+	// Callback function. This function is ran when a player data storage file has been read and the contents can be retrieved.
 	void HandleReadPlayerFileCompleted(bool bWasSuccessfull, const FUniqueNetId& UserId, const FString& FileName);
 
 	// Delegate to bind callback event for player data file storage file read.
 	FDelegateHandle ReadPlayerDataFileDelegateHandle;
+
+	// Tutorial 10 (ecom): EOS Ecom via three OSS interfaces - IOnlineStoreV2
+	// (catalog), IOnlinePurchase (checkout + receipts), IOnlineEntitlements
+	// (per-player entitlement state). Mode-agnostic: the EGS overlay handles
+	// the wallet client-side, so server-mode and P2P builds share the same flow.
+	// Requires bUseNewEcomFlow=True in DefaultEngine.ini's
+	// [/Script/OnlineSubsystemEOS.EOSSettings] section.
+
+	// Query EOS Game Catalog offers.
+	void QueryStoreOffers();
+	void HandleQueryStoreOffersCompleted(bool bWasSuccessful, const TArray<FUniqueOfferId>& OfferIds, const FString& Error);
+
+	// Query player receipts (prior purchases). bRestoreReceipts=true forces a
+	// backend re-fetch instead of returning OSS's cached list.
+	void QueryStoreReceipts(bool bRestoreReceipts = false);
+	void HandleQueryStoreReceiptsCompleted(const FOnlineError& Error);
+
+	// Open the EGS checkout overlay. Result fires asynchronously when the
+	// player closes it. REQUIRES a packaged Win64 client - the EOS overlay
+	// isn't available in PIE.
+	void CheckoutOffer(const FString& OfferId, int32 Quantity = 1, bool bConsumable = true);
+	void HandleCheckoutCompleted(const FOnlineError& Error, const TSharedRef<FPurchaseReceipt>& Receipt);
+
+	// Query player entitlements. IOnlineEntitlements uses the delegate-list
+	// pattern (vs callback-on-call for Store/Purchase) - hence a saved handle.
+	void QueryEntitlements();
+	void HandleQueryEntitlementsCompleted(bool bWasSuccessful, const FUniqueNetId& UserId, const FString& Namespace, const FString& Error);
+	FDelegateHandle QueryEntitlementsDelegateHandle;
+
+	/**
+	 * Redeem (consume) a granted entitlement, incrementing ConsumedCount on the
+	 * EOS backend. Wraps IOnlinePurchase::FinalizeReceiptValidationInfo.
+	 *
+	 * SAFETY: redeem on a trusted backend in production. A tampered client
+	 * could replay this call and have the server grant items free. Recommended
+	 * pattern: a server RPC that (1) grants the in-game item, then (2) redeems
+	 * the entitlement.
+	 */
+	void RedeemEntitlement(const FString& EntitlementId);
+
+	// Manual triggers for the two ecom hot paths that can't auto-fire:
+	// checkout would charge the player every launch, redeem would burn through
+	// entitlements every launch. Both take an Id arg since the target item
+	// can't be guessed.
+	//
+	// Usage in the in-game console (`~`):
+	//   TestCheckoutOffer <OfferId>
+	//   TestRedeemEntitlement <EntitlementId>
+	UFUNCTION(Exec)
+	void TestCheckoutOffer(const FString& OfferId);
+
+	UFUNCTION(Exec)
+	void TestRedeemEntitlement(const FString& EntitlementId);
 
 public:
 	// RPCs are declared outside the P2PMODE guard because UHT can't see preprocessor
