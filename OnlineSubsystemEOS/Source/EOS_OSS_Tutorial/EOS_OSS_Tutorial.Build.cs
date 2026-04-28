@@ -17,6 +17,6 @@ public class EOS_OSS_Tutorial : ModuleRules
         PrivateDependencyModuleNames.AddRange(new string[] { "VoiceChat", "EOSVoiceChat", "EOSShared", "HTTP", "Json", "EOSAntiCheat" });
 
         // Tutorial 7: This will set the game to be in P2P mode instead of dedicated server.
-        PrivateDefinitions.Add("P2PMODE=1");
+        PrivateDefinitions.Add("P2PMODE=0");
     }
 }

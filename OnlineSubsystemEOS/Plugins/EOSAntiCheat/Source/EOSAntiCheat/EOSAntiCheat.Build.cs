@@ -34,6 +34,6 @@ public class EOSAntiCheat : ModuleRules
 		// moved to ProtectEOSPackage (post-stage UAT command).
 
 		// Must mirror EOS_OSS_Tutorial.Build.cs - gates the plugin's peer-mode APIs.
-		PrivateDefinitions.Add("P2PMODE=1");
+		PrivateDefinitions.Add("P2PMODE=0");
 	}
 }
