@@ -11,6 +11,7 @@
 #include "Interfaces/OnlineEntitlementsInterface.h" // Tutorial 10: IOnlineEntitlements + FOnlineEntitlement.
 #include "IOnlineSubsystemEOS.h"                    // Tutorial 11: IOnlineSubsystemEOS for the EOS-only IOnlinePlayerReportEOS getter.
 #include "Interfaces/OnlinePlayerReportEOSInterface.h" // Tutorial 11: IOnlinePlayerReportEOS - EOS-specific, no generic OSS abstraction.
+#include "Interfaces/OnlinePlayerSanctionEOSInterface.h" // Tutorial 12: IOnlinePlayerSanctionEOS - EOS-specific, no generic OSS abstraction.
 #include "Serialization/JsonWriter.h"               // Tutorial 11: building the optional JSON Context blob for the report.
 #include "Policies/CondensedJsonPrintPolicy.h"      // Tutorial 11: compact JSON output policy used by TJsonWriter above.
 #include "Containers/Array.h"
@@ -331,7 +332,9 @@ void AEOSPlayerController::HandleLoginCompleted(int32 LocalUserNum, bool bWasSuc
 
         LoadTitleData();  // Load any game-related data (in this case a string output to logs).
         LoadPlayerData(); // Load save-game data.
-        FindSessions();   // For convenience a session is found in sequence here. In a real game this would be done via game UI. Goal here is to show EOS functionality, not game design.
+        // Tutorial 12: Sanctions query first - GetSanctions chains to
+        // FindSessions from its callback, gated by bRestrictMatchmaking.
+        GetSanctions(UserId);
 
         // Tutorial 10: Fan out the new Ecom flow's three queries. Catalog offers,
         // existing receipts, and current entitlements. See header for safety notes.
@@ -370,6 +373,15 @@ void AEOSPlayerController::FindSessions(FName SearchKey, FString SearchValue) //
 {
     // Tutorial 4: This function will find our EOS Session that was created by our DedicatedServer.
     // Tutorial 7: This function will find our EOS lobby. Note that at the OSS layer we are using a Session that is marked as a lobby. Code is similar with minor tweaks.
+    // Tutorial 12: Refuse to search if the local player is sanctioned.
+    // A real game would surface this in UI and offer the appeal flow.
+    if (bRestrictMatchmaking)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::FindSessions] Local player is restricted from online play - skipping session search."));
+        return;
+    }
+
     IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
     IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
 
@@ -2112,4 +2124,135 @@ void AEOSPlayerController::TestSendPlayerReport(const FString& Message, const FS
         *Target->ToDebugString(), *ActiveSessionName.ToString(), *Message);
 
     SendPlayerReport(LocalNetId.ToSharedRef(), Target, Message, ContextJson);
+}
+
+// =====================================================================
+// Tutorial 12: EOS Sanctions - query active sanctions and submit
+// appeals via IOnlineSubsystemEOS::GetPlayerSanctionEOSInterface
+// (EOS-only, no generic OSS abstraction). Mode-agnostic.
+// RESTRICT_MATCHMAKING is one of the standard EOS sanction actions;
+// developers can also define custom actions in EOS Dev Portal.
+// =====================================================================
+
+void AEOSPlayerController::GetSanctions(const FUniqueNetId& UserId)
+{
+    // Tutorial 12: Async query; sets bRestrictMatchmaking on
+    // RESTRICT_MATCHMAKING. Chains to FindSessions in the callback.
+    IOnlineSubsystemEOS* const EOSSubsystem = static_cast<IOnlineSubsystemEOS*>(Online::GetSubsystem(GetWorld()));
+    IOnlinePlayerSanctionEOSPtr Sanctions = EOSSubsystem ? EOSSubsystem->GetPlayerSanctionEOSInterface() : nullptr;
+    if (!Sanctions.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::GetSanctions] PlayerSanction EOS interface null."));
+        // Don't strand the post-login chain - find a session anyway.
+        FindSessions();
+        return;
+    }
+
+    // Local == Target: querying our own sanctions. AsShared() keeps the
+    // NetId alive across the async callback.
+    Sanctions->QueryActivePlayerSanctions(UserId, UserId,
+        FOnQueryActivePlayerSanctionsComplete::CreateLambda(
+            [this, PlayerId = UserId.AsShared()](const bool bWasSuccessful)
+            {
+                IOnlineSubsystemEOS* const EOSSubsystem = static_cast<IOnlineSubsystemEOS*>(Online::GetSubsystem(GetWorld()));
+                IOnlinePlayerSanctionEOSPtr Sanctions = EOSSubsystem ? EOSSubsystem->GetPlayerSanctionEOSInterface() : nullptr;
+
+                if (bWasSuccessful && Sanctions.IsValid())
+                {
+                    TArray<IOnlinePlayerSanctionEOS::FOnlinePlayerSanction> Active;
+                    if (Sanctions->GetCachedActivePlayerSanctions(PlayerId.Get(), Active) == EOnlineCachedResult::Success)
+                    {
+                        UE_LOG(LogEOSOSSTutorial, Verbose,
+                            TEXT("[AEOSPlayerController::GetSanctions] Found %d active sanction(s) for local player."),
+                            Active.Num());
+
+                        for (const IOnlinePlayerSanctionEOS::FOnlinePlayerSanction& Sanction : Active)
+                        {
+                            // Only action this tutorial handles. Real games
+                            // would map additional actions to feature toggles.
+                            if (Sanction.Action == TEXT("RESTRICT_MATCHMAKING"))
+                            {
+                                bRestrictMatchmaking = true;
+                                UE_LOG(LogEOSOSSTutorial, Warning,
+                                    TEXT("[AEOSPlayerController::GetSanctions] RESTRICT_MATCHMAKING active (ref %s) - online play disabled."),
+                                    *Sanction.ReferenceId);
+                                break;
+                            }
+                        }
+                    }
+                }
+                else if (!bWasSuccessful)
+                {
+                    UE_LOG(LogEOSOSSTutorial, Error,
+                        TEXT("[AEOSPlayerController::GetSanctions] QueryActivePlayerSanctions failed."));
+                }
+
+                // Continue the chain - FindSessions enforces the gate.
+                FindSessions();
+            }));
+}
+
+void AEOSPlayerController::CreateSanctionAppeal(const FUniqueNetId& UserId, FString ReferenceId)
+{
+    // Tutorial 12: Not auto-fired - learners hook this into a UI.
+    // TestCreateSanctionAppeal below is the manual trigger.
+    IOnlineSubsystemEOS* const EOSSubsystem = static_cast<IOnlineSubsystemEOS*>(Online::GetSubsystem(GetWorld()));
+    IOnlinePlayerSanctionEOSPtr Sanctions = EOSSubsystem ? EOSSubsystem->GetPlayerSanctionEOSInterface() : nullptr;
+    if (!Sanctions.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::CreateSanctionAppeal] PlayerSanction EOS interface null."));
+        return;
+    }
+
+    IOnlinePlayerSanctionEOS::FPlayerSanctionAppealSettings Settings;
+    // Hardcoded reason - real games bind a dropdown to
+    // EPlayerSanctionAppealReason. SDK enum spelling preserved.
+    Settings.Reason = IOnlinePlayerSanctionEOS::EPlayerSanctionAppealReason::AppealForForgivenesss;
+    Settings.ReferenceId = ReferenceId;
+
+    Sanctions->CreatePlayerSanctionAppeal(UserId, MoveTemp(Settings),
+        FOnCreatePlayerSanctionAppealComplete::CreateLambda(
+            [Ref = ReferenceId](const bool bWasSuccessful)
+            {
+                if (bWasSuccessful)
+                {
+                    UE_LOG(LogEOSOSSTutorial, Verbose,
+                        TEXT("[AEOSPlayerController::CreateSanctionAppeal] Appeal submitted (ref %s)."),
+                        *Ref);
+                }
+                else
+                {
+                    UE_LOG(LogEOSOSSTutorial, Error,
+                        TEXT("[AEOSPlayerController::CreateSanctionAppeal] Appeal submission failed (ref %s)."),
+                        *Ref);
+                }
+            }));
+}
+
+void AEOSPlayerController::TestCreateSanctionAppeal(const FString& ReferenceId)
+{
+    // Tutorial 12: Console wrapper. Resolves the local NetId so the
+    // Exec call can target it.
+    if (ReferenceId.IsEmpty())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::TestCreateSanctionAppeal] ReferenceId required - copy it from the active sanction in Dev Portal."));
+        return;
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    FUniqueNetIdPtr LocalNetId = Identity.IsValid() ? Identity->GetUniquePlayerId(0) : nullptr;
+    if (!LocalNetId.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::TestCreateSanctionAppeal] No local NetId - log in first."));
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::TestCreateSanctionAppeal] Submitting appeal for ref %s."),
+        *ReferenceId);
+
+    CreateSanctionAppeal(*LocalNetId, ReferenceId);
 }

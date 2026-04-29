@@ -175,9 +175,22 @@ protected:
 	// a post-match report UI, never silently on every departure.
 	void SendPlayerReport(const FUniqueNetIdRef& Reporter, const FUniqueNetIdRef& Reported, const FString& Message, const FString& ContextJson);
 
-	// Manual triggers for the three hot paths that can't auto-fire:
+	// Tutorial 12: EOS Sanctions - EOS-only interface (no generic OSS
+	// abstraction). Sets bRestrictMatchmaking on RESTRICT_MATCHMAKING
+	// (a standard EOS action; developers can also define custom ones).
+	void GetSanctions(const FUniqueNetId& UserId);
+
+	// Set by GetSanctions; FindSessions early-returns when true.
+	bool bRestrictMatchmaking = false;
+
+	// Submit an appeal for a sanction by ReferenceId. Hardcoded reason -
+	// real games bind a dropdown to EPlayerSanctionAppealReason.
+	void CreateSanctionAppeal(const FUniqueNetId& UserId, FString ReferenceId);
+
+	// Manual triggers for the four hot paths that can't auto-fire:
 	// checkout would charge the player every launch, redeem would burn through
-	// entitlements every launch, and player reports should never fire silently.
+	// entitlements every launch, player reports should never fire silently,
+	// and sanction appeals need a Dev Portal ReferenceId.
 	// All take an arg since the target / message can't be guessed.
 	//
 	// Usage in the in-game console (`~`):
@@ -186,6 +199,8 @@ protected:
 	//   TestSendPlayerReport <Message> [ContextJson]
 	//     - defaults target to first non-self player in the local named session
 	//       (LobbyName for P2P, NAME_GameSession for server)
+	//   TestCreateSanctionAppeal <ReferenceId>
+	//     - copy ReferenceId from the active sanction in Dev Portal
 	UFUNCTION(Exec)
 	void TestCheckoutOffer(const FString& OfferId);
 
@@ -194,6 +209,9 @@ protected:
 
 	UFUNCTION(Exec)
 	void TestSendPlayerReport(const FString& Message, const FString& Context = TEXT(""));
+
+	UFUNCTION(Exec)
+	void TestCreateSanctionAppeal(const FString& ReferenceId);
 
 public:
 	// RPCs are declared outside the P2PMODE guard because UHT can't see preprocessor
