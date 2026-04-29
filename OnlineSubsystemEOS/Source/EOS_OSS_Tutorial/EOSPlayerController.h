@@ -168,19 +168,32 @@ protected:
 	 */
 	void RedeemEntitlement(const FString& EntitlementId);
 
-	// Manual triggers for the two ecom hot paths that can't auto-fire:
+	// Tutorial 11: Player Reports. Mode-agnostic - the OSS-EOS public
+	// IOnlinePlayerReportEOS interface is the same on server-mode sessions
+	// and P2P lobbies. Surfaced via Exec command (TestSendPlayerReport)
+	// rather than auto-firing on lobby leave - real games invoke this from
+	// a post-match report UI, never silently on every departure.
+	void SendPlayerReport(const FUniqueNetIdRef& Reporter, const FUniqueNetIdRef& Reported, const FString& Message, const FString& ContextJson);
+
+	// Manual triggers for the three hot paths that can't auto-fire:
 	// checkout would charge the player every launch, redeem would burn through
-	// entitlements every launch. Both take an Id arg since the target item
-	// can't be guessed.
+	// entitlements every launch, and player reports should never fire silently.
+	// All take an arg since the target / message can't be guessed.
 	//
 	// Usage in the in-game console (`~`):
 	//   TestCheckoutOffer <OfferId>
 	//   TestRedeemEntitlement <EntitlementId>
+	//   TestSendPlayerReport <Message> [ContextJson]
+	//     - defaults target to first non-self player in the local named session
+	//       (LobbyName for P2P, NAME_GameSession for server)
 	UFUNCTION(Exec)
 	void TestCheckoutOffer(const FString& OfferId);
 
 	UFUNCTION(Exec)
 	void TestRedeemEntitlement(const FString& EntitlementId);
+
+	UFUNCTION(Exec)
+	void TestSendPlayerReport(const FString& Message, const FString& Context = TEXT(""));
 
 public:
 	// RPCs are declared outside the P2PMODE guard because UHT can't see preprocessor

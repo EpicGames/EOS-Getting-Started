@@ -9,6 +9,10 @@
 #include "Online/OnlineSessionNames.h" // SEARCH_LOBBIES FName used by the P2P find-lobby branch (no longer pulled in transitively in UE 5.8).
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "Interfaces/OnlineEntitlementsInterface.h" // Tutorial 10: IOnlineEntitlements + FOnlineEntitlement.
+#include "IOnlineSubsystemEOS.h"                    // Tutorial 11: IOnlineSubsystemEOS for the EOS-only IOnlinePlayerReportEOS getter.
+#include "Interfaces/OnlinePlayerReportEOSInterface.h" // Tutorial 11: IOnlinePlayerReportEOS - EOS-specific, no generic OSS abstraction.
+#include "Serialization/JsonWriter.h"               // Tutorial 11: building the optional JSON Context blob for the report.
+#include "Policies/CondensedJsonPrintPolicy.h"      // Tutorial 11: compact JSON output policy used by TJsonWriter above.
 #include "Containers/Array.h"
 #include "Kismet/GameplayStatics.h"
 #include "Serialization/BufferArchive.h"
@@ -1935,4 +1939,141 @@ void AEOSPlayerController::TestRedeemEntitlement(const FString& EntitlementId)
     // (ConsumedCount > 0) won't re-redeem.
     UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::TestRedeemEntitlement] Console-triggered redeem for EntitlementId=%s"), *EntitlementId);
     RedeemEntitlement(EntitlementId);
+}
+
+// =====================================================================
+// Tutorial 11: Player Reports - SendPlayerReport via the OSS-EOS plugin's
+// public IOnlinePlayerReportEOS interface (no generic OSS abstraction).
+// Mode-agnostic: same call works for server-mode sessions and P2P
+// lobbies. Surfaced via Exec command - real games invoke this from a
+// post-match report UI.
+// =====================================================================
+
+void AEOSPlayerController::SendPlayerReport(const FUniqueNetIdRef& Reporter, const FUniqueNetIdRef& Reported, const FString& Message, const FString& ContextJson)
+{
+    // OSS-EOS-only API: cast IOnlineSubsystem to IOnlineSubsystemEOS to reach
+    // GetPlayerReportEOSInterface(). No generic IOnlinePlayerReports exists.
+    IOnlineSubsystemEOS* const EOSSubsystem = static_cast<IOnlineSubsystemEOS*>(Online::GetSubsystem(GetWorld()));
+    IOnlinePlayerReportEOSPtr Reports = EOSSubsystem ? EOSSubsystem->GetPlayerReportEOSInterface() : nullptr;
+    if (!Reports.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::SendPlayerReport] PlayerReport EOS interface null."));
+        return;
+    }
+
+    IOnlinePlayerReportEOS::FSendPlayerReportSettings Settings;
+    // Hardcoded category for the demo - real games surface a dropdown in the
+    // post-match report UI bound to the full EPlayerReportCategory enum.
+    Settings.Category = IOnlinePlayerReportEOS::EPlayerReportCategory::Cheating;
+    Settings.Message  = Message;
+    // SDK rejects the call if Context is non-empty and not valid JSON. Empty is allowed.
+    Settings.Context  = ContextJson;
+
+    Reports->SendPlayerReport(*Reporter, *Reported, MoveTemp(Settings),
+        FOnSendPlayerReportComplete::CreateLambda(
+            [ReportedShared = Reported](const bool bWasSuccessful)
+            {
+                if (bWasSuccessful)
+                {
+                    UE_LOG(LogEOSOSSTutorial, Verbose,
+                        TEXT("[AEOSPlayerController::SendPlayerReport] Report submitted for %s."),
+                        *ReportedShared->ToDebugString());
+                }
+                else
+                {
+                    UE_LOG(LogEOSOSSTutorial, Error,
+                        TEXT("[AEOSPlayerController::SendPlayerReport] Report submission failed for %s."),
+                        *ReportedShared->ToDebugString());
+                }
+            }));
+}
+
+void AEOSPlayerController::TestSendPlayerReport(const FString& Message, const FString& Context)
+{
+    // Console wrapper: pick the first non-self player in the local named
+    // session as the report target. No-op if no session is active or no
+    // other players are registered.
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    FUniqueNetIdPtr LocalNetId = Identity.IsValid() ? Identity->GetUniquePlayerId(0) : nullptr;
+    if (!Session.IsValid() || !LocalNetId.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestSendPlayerReport] OSS session/identity unavailable."));
+        return;
+    }
+
+#if P2PMODE
+    const FName ActiveSessionName = LobbyName;
+#else
+    // Server-mode: project shadows the inherited AGameSession::SessionName
+    // default with the literal "SessionName" (see AEOSGameSession.h). The
+    // client's JoinSession at EOSPlayerController.cpp:509 mirrors that name,
+    // so the OSS named-session lookup uses the same key on both sides.
+    const FName ActiveSessionName = TEXT("SessionName");
+#endif
+
+    FNamedOnlineSession* const Named = Session->GetNamedSession(ActiveSessionName);
+    if (!Named)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::TestSendPlayerReport] No active named session '%s' - join a lobby/session first."),
+            *ActiveSessionName.ToString());
+        return;
+    }
+
+    // Mode-conditional roster iteration on OSS data (no engine-level
+    // PlayerArray needed):
+    //   P2P:    Named->SessionSettings.MemberSettings - published by the
+    //           OSS-EOS lobby flow.
+    //   Server: Named->RegisteredPlayers - populated locally on each client
+    //           via AEOSPlayerState::OnRep_UniqueId as PlayerStates replicate.
+    FUniqueNetIdPtr TargetNetId;
+#if P2PMODE
+    for (const TPair<FUniqueNetIdRef, FSessionSettings>& MemberPair : Named->SessionSettings.MemberSettings)
+    {
+        if (*MemberPair.Key != *LocalNetId)
+        {
+            TargetNetId = MemberPair.Key;
+            break;
+        }
+    }
+#else
+    for (const FUniqueNetIdRef& Id : Named->RegisteredPlayers)
+    {
+        if (*Id != *LocalNetId)
+        {
+            TargetNetId = Id;
+            break;
+        }
+    }
+#endif
+    if (!TargetNetId.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::TestSendPlayerReport] No other players in session '%s'."),
+            *ActiveSessionName.ToString());
+        return;
+    }
+    const FUniqueNetIdRef Target = TargetNetId.ToSharedRef();
+
+    // If caller passed an empty Context, build a tiny JSON blob so the SDK's
+    // "Context must be valid JSON" requirement is visibly demonstrated.
+    FString ContextJson = Context;
+    if (ContextJson.IsEmpty())
+    {
+        const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer
+            = TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&ContextJson);
+        Writer->WriteObjectStart();
+        Writer->WriteValue(TEXT("session"), ActiveSessionName.ToString());
+        Writer->WriteValue(TEXT("source"),  TEXT("TestSendPlayerReport"));
+        Writer->WriteObjectEnd();
+        Writer->Close();
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::TestSendPlayerReport] Reporting %s in session '%s' - Message=\"%s\""),
+        *Target->ToDebugString(), *ActiveSessionName.ToString(), *Message);
+
+    SendPlayerReport(LocalNetId.ToSharedRef(), Target, Message, ContextJson);
 }
