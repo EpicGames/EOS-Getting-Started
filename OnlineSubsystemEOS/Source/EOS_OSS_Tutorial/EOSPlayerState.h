@@ -33,6 +33,18 @@ protected:
 	// Function called when play begins, included for completeness but not used.
 	virtual void BeginPlay();
 
+	// Bug-fix: client-side OSS RegisterPlayer sync. The OSS-EOS plugin only
+	// populates the server's local FNamedOnlineSession::RegisteredPlayers via
+	// AGameSession::RegisterPlayer in PostLogin; clients never replicate that
+	// roster, so EGS social overlay / friend-presence checks see an empty
+	// list. Hook OnRep_UniqueId (fires on clients once UniqueId replicates
+	// in - AddPlayerState fires too early, before UniqueId is set) to call
+	// Session->RegisterPlayer locally for self. EndPlay mirrors with
+	// UnregisterPlayer. Server-mode only - lobbies push their own member
+	// list via the EOS Lobby service.
+	virtual void OnRep_UniqueId() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
 	// Delegate to bind callback event for when a leaderboard is retrieved. Same delgate used for global and friend leaderboards.
 	FDelegateHandle QueryLeaderboardDelegateHandle;
 

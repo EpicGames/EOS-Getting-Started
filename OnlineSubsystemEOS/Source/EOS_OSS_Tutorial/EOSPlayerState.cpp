@@ -8,6 +8,15 @@
 #include "Interfaces/OnlineStatsInterface.h"
 #include "Interfaces/OnlineAchievementsInterface.h"
 #include "Interfaces/OnlineFriendsInterface.h"
+#include "Interfaces/OnlineSessionInterface.h"  // OnRep_UniqueId / EndPlay sync local OSS RegisteredPlayers.
+
+#if !P2PMODE
+// Match EOSPlayerController::JoinSession ('SessionName' literal) and
+// AEOSGameSession::SessionName so the OSS named-session key on the
+// PlayerState side lines up with what the controller and game-session
+// already created on this peer.
+static const FName ActiveSessionName = TEXT("SessionName");
+#endif
 
 // All the code in here is for tutorial 5: Stats, Achievements and Leaderboards
 
@@ -20,6 +29,62 @@ void AEOSPlayerState::BeginPlay()
 {
 	// Including BeginPlay() for completeness
 	Super::BeginPlay();
+}
+
+void AEOSPlayerState::OnRep_UniqueId()
+{
+	Super::OnRep_UniqueId();
+
+#if !P2PMODE
+	// Fires on clients each time a PlayerState's UniqueId arrives via
+	// replication (server's local roster is already populated by
+	// AGameSession::RegisterPlayer in PostLogin). For each PlayerState we
+	// receive - including our own - mirror the engine event into the local
+	// OSS named session so the EGS social overlay and friend-presence flows
+	// see a complete roster.
+	FUniqueNetIdPtr Id = GetUniqueId().GetUniqueNetId();
+	if (!Id.IsValid())
+	{
+		return;
+	}
+
+	IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+	IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+	if (!Session.IsValid() || !Session->GetNamedSession(ActiveSessionName))
+	{
+		return;
+	}
+
+	// OSS-EOS dedupes on RegisteredPlayers (OnlineSessionEOS.cpp:3497) so
+	// duplicate calls are safe (one OSS Log line on dedup, no backend hit).
+	UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerState::OnRep_UniqueId] RegisterPlayer %s in session '%s'."),
+		*Id->ToDebugString(), *ActiveSessionName.ToString());
+	Session->RegisterPlayer(ActiveSessionName, *Id, /*bWasInvited=*/ false);
+#endif
+}
+
+void AEOSPlayerState::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+#if !P2PMODE
+	// Mirror OnRep_UniqueId on the way out - clients only. Server-side
+	// unregister is handled by AGameSession::NotifyLogout already.
+	if (GetNetMode() == NM_Client)
+	{
+		FUniqueNetIdPtr Id = GetUniqueId().GetUniqueNetId();
+		if (Id.IsValid())
+		{
+			IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+			IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+			if (Session.IsValid() && Session->GetNamedSession(ActiveSessionName))
+			{
+				UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerState::EndPlay] UnregisterPlayer %s from session '%s'."),
+					*Id->ToDebugString(), *ActiveSessionName.ToString());
+				Session->UnregisterPlayer(ActiveSessionName, *Id);
+			}
+		}
+	}
+#endif
+	Super::EndPlay(EndPlayReason);
 }
 
 void AEOSPlayerState::UpdateStat(FString StatName, int32 StatValue)
