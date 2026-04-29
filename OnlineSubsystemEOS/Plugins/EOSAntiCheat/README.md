@@ -37,6 +37,16 @@ compiles when the tutorial module is built with `P2PMODE=1` (the flag
 is duplicated in `EOSAntiCheat.Build.cs` — keep it in sync with
 `EOS_OSS_Tutorial.Build.cs`).
 
+The project's `ACMODE` build flag (default `0`, in
+`EOS_OSS_Tutorial.Build.cs`) lets learners disable every anti-cheat
+call site while keeping the plugin compiled, so Tutorials 4–8 can be
+exercised without setting up the EAC bootstrapper or integrity tool.
+Tutorial 9's setup section walks the reader through flipping
+`ACMODE=1` for the AC-specific exercises. The `ProtectEOSPackage` UAT
+command refuses to run on `ACMODE=0` builds (silent misconfiguration
+risk), and the plain `BuildCookRun` output is itself a shippable
+artifact in that mode.
+
 Listen-server is not a supported deployment target.
 
 ## One-time setup
@@ -166,6 +176,20 @@ machine), then executes the game binary named in `Settings.json`.
 Server builds launch normally (no bootstrapper) - AntiCheat servers are
 not player-facing processes and the SDK doesn't require protection
 there.
+
+> **Local two-client P2P testing — EAC service init race.** When you
+> launch two protected clients on the same machine within ~1s of each
+> other, EAC's host-shared service+driver can leave both processes in
+> a state where peer-auth bytes never deliver between them: EOS P2P
+> reports "Connection established" on both sides, but `OnMessageFromPeer`
+> never fires, and after 40s both clients hit
+> `OnPeerActionRequired: Authentication timed out`. Wait ~5s after the
+> first protected client's window appears before launching the second
+> — that gives EAC's service enough time to finish attaching the first
+> process before the second registers. Reliable empirical workaround;
+> the symptom is local-host-multi-protected-process specific and doesn't
+> reproduce in real deployments where each player runs on their own
+> machine.
 
 ## Expected logs (packaged Win64 client under the bootstrapper)
 

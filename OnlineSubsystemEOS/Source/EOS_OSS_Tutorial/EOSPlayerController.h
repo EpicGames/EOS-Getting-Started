@@ -239,6 +239,7 @@ protected:
 	FString CurrentVoiceToken;
 	FString CurrentVoiceClientBaseUrl;
 
+#if ACMODE
 	// Tutorial 9 (anti-cheat client):
 	// Start/stop the plugin's client-side AntiCheat session. Only runs on the local controller.
 	void BeginAntiCheatClientSession();
@@ -247,6 +248,7 @@ protected:
 	// Bound to IEOSAntiCheatClient::OnMessageToServer; forwards bytes to the server via Server_AntiCheatMessage.
 	void HandleAntiCheatMessageToServer(const TArray<uint8>& Bytes);
 	FDelegateHandle AntiCheatMessageToServerHandle;
+#endif
 #endif
 
 #if P2PMODE
@@ -278,6 +280,7 @@ protected:
 	// Delegate to bind callback event for participant left.
 	FDelegateHandle ParticipantLeftDelegateHandle;
 
+#if ACMODE
 	// Tutorial 9 (P2P branch): mesh AC - every peer registers every other peer.
 	// Each SDK fires OnPeerActionRequired independently; lobby host KickPlayers the offender.
 	//
@@ -289,6 +292,7 @@ protected:
 	void UnbindAntiCheatViolationDelegate();
 	void HandleAntiCheatViolationP2P(const FUniqueNetIdPtr& OffendingPlayer, const FString& Reason);
 	FDelegateHandle AntiCheatViolationDelegateHandle;
+#endif
 
 	// Tutorial 9 (P2P branch): catches participants already in the lobby on join,
 	// which the post-join CopyLobbyData fire populates into MemberSettings.

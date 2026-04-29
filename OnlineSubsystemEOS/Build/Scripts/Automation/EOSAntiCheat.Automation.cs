@@ -61,6 +61,29 @@ After this completes, launch the game via <stagedDir>/start_protected_game.exe.
 			// only contains .exe/.dll code and EAC client-side verification stays fast.
 			string IntegrityCfg = Path.Combine(PluginDir, "AntiCheatIntegrity.cfg");
 
+			// Refuse if EOS_OSS_Tutorial.Build.cs doesn't declare ACMODE=1:
+			// protecting an ACMODE=0 package produces a "protected" build
+			// whose game binary never initializes EAC at runtime. Fail-safe -
+			// any read/parse failure is treated as ACMODE=0.
+			string TutorialBuildCs = Path.Combine(
+				ProjectDir, "Source", "EOS_OSS_Tutorial", "EOS_OSS_Tutorial.Build.cs");
+			bool bAcModeOne = false;
+			if (File.Exists(TutorialBuildCs))
+			{
+				string BuildCsText = File.ReadAllText(TutorialBuildCs);
+				Match AcMatch = Regex.Match(
+					BuildCsText,
+					@"PrivateDefinitions\.Add\(\s*""ACMODE=(?<v>[01])""\s*\)");
+				bAcModeOne = AcMatch.Success && AcMatch.Groups["v"].Value == "1";
+			}
+			if (!bAcModeOne)
+			{
+				throw new AutomationException(
+					"ACMODE=1 not declared in {0}. ACMODE=0 builds ship un-protected by design "
+				  + "- skip this step. To protect, set ACMODE=1 in EOS_OSS_Tutorial.Build.cs and rebuild first.",
+					TutorialBuildCs);
+			}
+
 			// -------- Preflight --------------------------------------------
 			if (!Directory.Exists(PackageDir))
 			{

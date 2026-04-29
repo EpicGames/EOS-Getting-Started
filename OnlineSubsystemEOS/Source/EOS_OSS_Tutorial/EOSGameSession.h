@@ -114,6 +114,7 @@ protected:
 	// Finds the AEOSPlayerController whose PlayerState owns the supplied FUniqueNetId.
 	class AEOSPlayerController* FindPlayerControllerByNetId(const FUniqueNetIdRef& PlayerId) const;
 
+#if ACMODE
 	// Tutorial 9: Bound to IEOSAntiCheat::OnViolation. Kicks via AGameSession::KickPlayer.
 	// PlayerId null = PEER_SELF (P2P only); never reaches server-mode.
 	void HandleAntiCheatViolation(const FUniqueNetIdPtr& PlayerId, const FString& Reason);
@@ -131,5 +132,6 @@ public:
 	// (not before - see the IEOSAntiCheatServer::RegisterClient comment for the heartbeat
 	// timeout that kicks in if we register while the client is still blocked).
 	void RegisterAntiCheatClient(const FUniqueNetIdRef& PlayerId);
+#endif
 #endif
 };

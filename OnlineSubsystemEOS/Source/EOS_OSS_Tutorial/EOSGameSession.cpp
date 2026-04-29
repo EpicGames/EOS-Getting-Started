@@ -25,9 +25,11 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
+#if ACMODE
 // Tutorial 9 (server-side AC): wires the lifecycle and the OnViolation -> kick path.
 #include "IEOSAntiCheat.h"
 #include "IEOSAntiCheatServer.h"
+#endif
 #endif
 
 
@@ -77,7 +79,7 @@ void AEOSGameSession::BeginPlay()
         CreateSession("KeyName", "KeyValue"); // Should parametrize Key/Value pair for custom attribute
     }
 
-#if !P2PMODE
+#if !P2PMODE && ACMODE
     // Tutorial 9: Spin up the AntiCheat server session so it's ready before any
     // players attempt to register. Wire the violation and message-to-client
     // delegates here; we tear them down in EndPlay.
@@ -102,7 +104,7 @@ void AEOSGameSession::EndPlay(const EEndPlayReason::Type EndPlayReason)
     // Tutorial 3: Override base function to destroy session at end of play. Only the dedicated server
     // owns a session (clients join but don't create one here), so skip DestroySession on clients to
     // avoid the spurious failure log that would otherwise fire on every clean client exit.
-#if !P2PMODE
+#if !P2PMODE && ACMODE
     // Tutorial 9: Tear down AntiCheat before OSS shutdown. Order matches voice:
     // plugin-level teardown first, then OSS. Delegate unbinds are unconditional
     // so stale bindings never outlive this actor.
@@ -141,7 +143,7 @@ void AEOSGameSession::PostLogin(APlayerController* NewPlayer)
 void AEOSGameSession::NotifyLogout(const APlayerController* ExitingPlayer)
 {
     // Tutorial 3: Override base function to handle players leaving EOS Session.
-#if !P2PMODE
+#if !P2PMODE && ACMODE
     // Tutorial 9: Unregister from AntiCheat before OSS unregister so the SDK
     // doesn't continue heartbeating a player that's already gone. Safe to call
     // unconditionally - the plugin no-ops on unknown PUIDs.
@@ -741,6 +743,7 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
 // Tutorial 9: Server-side anti-cheat glue.
 // ----------------------------------------------------------------------------------------------
 
+#if ACMODE
 void AEOSGameSession::RegisterAntiCheatClient(const FUniqueNetIdRef& PlayerId)
 {
     if (!IsRunningDedicatedServer())
@@ -788,4 +791,5 @@ void AEOSGameSession::HandleAntiCheatMessageToClient(const FUniqueNetIdRef& Play
     }
     PC->Client_AntiCheatMessage(Bytes);
 }
+#endif // ACMODE
 #endif // !P2PMODE

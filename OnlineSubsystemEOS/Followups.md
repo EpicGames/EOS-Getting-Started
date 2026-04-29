@@ -171,3 +171,173 @@ Tutorial numbers themselves are also being reordered by the user — the
 new sequence will land at the same time as this banner pass, so existing
 `Tutorial N:` per-line markers need updating in lockstep with the headers.
 
+### 8. Document the four-cell `ACMODE × P2PMODE` matrix in the project README
+
+Source: ACMODE flag commit.
+
+The two compile flags `ACMODE` and `P2PMODE` (both in
+`EOS_OSS_Tutorial.Build.cs`) combine orthogonally to form four
+build-mode cells:
+
+|             | `ACMODE=0`        | `ACMODE=1`               |
+|-------------|-------------------|--------------------------|
+| `P2PMODE=0` | server, no AC (committed default) | server + AC |
+| `P2PMODE=1` | mesh, no AC       | mesh + AC                |
+
+Currently the topology and AC stories are explained on the
+`EOSAntiCheat` plugin README, but the project root README hasn't been
+updated since 5.1. After the renumbering pass (#7), the project README
+should grow a short "build modes" section pointing at the matrix and
+linking to the AC plugin README for the AC-specific cells.
+
+### 8.5. `BuildCookRun -archive` silently skips locked .exe overwrites
+
+Source: P2P+ACMODE test session.
+
+If a packaged game / `start_protected_game.exe` is still running while
+you re-run `BuildCookRun ... -archive -archivedirectory=...`, Windows
+file-locks the destination `EOS_OSS_Tutorial.exe` inside the archive
+tree. UAT logs `BUILD SUCCESSFUL` regardless and the older .exe stays
+in place. `ProtectEOSPackage` then hashes the **stale** binary into
+the integrity catalog, producing a package that boots fine, passes EAC
+integrity, and runs the old code.
+
+This wasted ~30 minutes of testing today (multiple "rebuilds" that
+appeared to succeed but kept loading the same pre-fix binary).
+
+Defenses to consider during the bug-fix sweep:
+
+1. **Pre-flight in our `ProtectEOSPackage` UAT** — compare the
+   timestamp / size of `Packaged/Windows/EOS_OSS_Tutorial/Binaries/Win64/EOS_OSS_Tutorial.exe`
+   against `Saved/StagedBuilds/Windows/EOS_OSS_Tutorial/Binaries/Win64/EOS_OSS_Tutorial.exe`.
+   Abort with a clear error if the staged file is newer than the
+   archived one - "Package wasn't updated, did you forget to close
+   running clients?".
+2. **Check tasklist before running** - Powershell or simple `tasklist`
+   filter for `EOS_OSS_Tutorial.exe` / `start_protected_game.exe`
+   before BuildCookRun. Refuse if any match.
+3. **Document loudly** in the plugin README / CLAUDE.md that any
+   running protected client must be closed before running
+   BuildCookRun.
+
+(1) is the highest-confidence catch since it works on the actual
+build artifact rather than process names.
+
+### 8a. Single source of truth for `P2PMODE` across project + plugin Build.cs
+
+Source: P2P+ACMODE test session — hit a confusing crash that turned out
+to be a `P2PMODE` mismatch between the project module
+(`Source/EOS_OSS_Tutorial/EOS_OSS_Tutorial.Build.cs`) and the plugin
+module (`Plugins/EOSAntiCheat/Source/EOSAntiCheat/EOSAntiCheat.Build.cs`).
+The plugin's Build.cs has a hardcoded `PrivateDefinitions.Add("P2PMODE=0")`
+with a comment "Must mirror EOS_OSS_Tutorial.Build.cs". When a learner
+flips the project-side flag and forgets the plugin-side flag, the two
+modules end up with different `P2PMODE` values → ABI mismatch when the
+project calls into the plugin's peer-mode-conditional code →
+`EXCEPTION_ACCESS_VIOLATION` deep inside the AC plugin's multicast
+delegate machinery at first BeginPlay. Compiles fine, crashes with no
+clear pointer to the root cause.
+
+Two-part fix during the bug-fix sweep:
+
+**(a)** Auto-sync at build time. Plugin's `EOSAntiCheat.Build.cs` reads
+the project's `EOS_OSS_Tutorial.Build.cs` and derives `P2PMODE` from
+it, so there is one source of truth:
+
+```csharp
+string projectBuildCs = Path.Combine(Target.ProjectFile.Directory.FullName,
+    "Source", "EOS_OSS_Tutorial", "EOS_OSS_Tutorial.Build.cs");
+Match m = Regex.Match(File.ReadAllText(projectBuildCs),
+    @"PrivateDefinitions\.Add\(\s*""P2PMODE=(?<v>[01])""\s*\)");
+PrivateDefinitions.Add("P2PMODE=" + (m.Success ? m.Groups["v"].Value : "0"));
+```
+
+**(b)** Loud warning on the project-side line so the comment is at the
+file the learner *edits* (not the file they don't open):
+
+```csharp
+// Tutorial 7: P2P mode toggle.
+// IMPORTANT: This used to require flipping the matching line in
+//   Plugins/EOSAntiCheat/Source/EOSAntiCheat/EOSAntiCheat.Build.cs
+// too. As of [bug-fix sweep commit hash], the plugin's Build.cs auto-
+// reads this file at build time, so flipping here alone is enough.
+// Mismatched values used to cause a confusing crash inside the AC
+// plugin's delegate machinery (EXCEPTION_ACCESS_VIOLATION at first
+// BeginPlay).
+PrivateDefinitions.Add("P2PMODE=0");
+```
+
+Apply the same auto-sync pattern to `ACMODE` while we're there - same
+risk profile if a future commit puts an `ACMODE` define inside the
+plugin's Build.cs.
+
+### 8b. Update `CLAUDE.md` to remove the `bIsUsingP2PSockets` instruction
+
+Source: P2P+ACMODE test session prep.
+
+`CLAUDE.md` currently says:
+
+> The P2P path also requires flipping
+> `[/Script/SocketSubsystemEOS.NetDriverEOSBase] bIsUsingP2PSockets=True`
+> in `Config/DefaultEngine.ini`. Rebuild after toggling.
+
+That guidance is **stale**. In UE 5.8, `bIsUsingP2PSockets` is
+deprecated; the engine actively warns if it's set
+(`Engine/Plugins/Online/SocketSubsystemEOS/Source/SocketSubsystemEOS/Private/NetDriverEOS.cpp:21`):
+
+```
+"bIsUsingP2PSockets is deprecated, please remove any related config values"
+```
+
+The project's `Config/DefaultEngine.ini` already doesn't have it (the
+P2P NetDriver is selected purely by the `+NetDriverDefinitions` swap to
+`/Script/SocketSubsystemEOS.NetDriverEOS` already in the file). Drop
+the `bIsUsingP2PSockets` paragraph from CLAUDE.md during the bug-fix
+sweep.
+
+### 9. Audit what else should live on the new `AEOSGameState` class
+
+Source: client-side `RegisterPlayer` sync fix.
+
+`AEOSGameState` was added to mirror `PlayerArray` -> OSS
+`RegisteredPlayers` for the server-mode dedicated-server flow. It's a
+new GameState surface that runs on every peer (server + every client),
+which makes it a natural home for any other "engine event arriving on
+this peer that should trickle into OSS state" hooks. Candidates to
+review during the bug-fix sweep:
+
+- Score / stats rollup that today might be on-controller and miss
+  remote APlayerStates.
+- Match-state transitions (`HandleBeginPlay`, `HandleMatchHasStarted`,
+  `HandleMatchHasEnded`) — currently driven from the GameMode on the
+  server. If any client-side behavior should fire on the same edges, a
+  GameState override is the right hook.
+- Any future "I noticed peer X joined" event sourced today from
+  controller-side replication callbacks.
+
+Don't pre-emptively move things; wait until the bug-fix sweep surfaces
+the next concrete need.
+
+### 10. Reconcile `EOSAntiCheat` plugin README with `EOSAntiCheat.Build.cs`
+
+Source: ACMODE flag commit (noticed in passing).
+
+The README's "Step 1: package the game" section claims:
+
+> During `-stage`, `EOSAntiCheat.Build.cs` automatically copies
+> `start_protected_game.exe` and the `EasyAntiCheat/` runtime folder
+> into the package root via `RuntimeDependencies`. No manual file copy
+> required.
+
+This contradicts the Build.cs comment block at line 31:
+
+> No RuntimeDependencies: bootstrapper + EasyAntiCheat/ must live at
+> the package ROOT (integrity tool's `-target_game_dir`), not
+> Binaries/Win64. UE's path variables don't resolve to the package
+> root, so file placement moved to ProtectEOSPackage (post-stage UAT
+> command).
+
+The Build.cs is right — the bootstrapper lands via the UAT command's
+explicit `File.Copy`, not via `RuntimeDependencies`. Fix the README's
+Step 1 description to match.
+

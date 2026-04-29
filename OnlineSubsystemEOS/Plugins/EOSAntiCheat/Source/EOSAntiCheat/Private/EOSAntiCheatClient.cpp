@@ -248,6 +248,16 @@ static FString DescribeActionReason(EOS_EAntiCheatCommonClientActionReason Code,
 
 void FEOSAntiCheatClient::BeginP2PSession(const FUniqueNetIdRef& LocalUser)
 {
+	// Local multi-client dev gotcha: when two EAC-protected processes start
+	// up on the same host within ~1s of each other, both can land in a state
+	// where peer-auth bytes never deliver between them - sockets connect
+	// (EOS reports "Connection established") but the EAC client SDK on each
+	// side never sees the other's bytes, both time out at AuthenticationTimeout.
+	// Empirically: ~5s+ delay between protected launches makes it reliable.
+	// EAC's host-shared service+driver appears to need that window to finish
+	// attaching the first process before the second registers. Not a real-
+	// deployment concern (players don't multi-instance protected clients on
+	// one machine), but matters for local two-client testing.
 	P2PHandle = EOS_Platform_GetP2PInterface(PlatformHandle);
 	if (!P2PHandle)
 	{
