@@ -203,6 +203,22 @@ protected:
 	// from the console without relying on the EOS Social Overlay UI.
 	TOptional<FOnlineSessionSearchResult> LastReceivedInvite;
 
+	// Tutorial 13: EOS Presence - publish the local user's status + rich
+	// text, query other players' presence, react to async updates. The
+	// EOS Social Overlay reads the rich-text/state pair and shows it on
+	// friend rows. This is the layer above the session-attached presence
+	// configured in Tutorial 4/7 (the bUsesPresence join-time flip).
+	void SetGamePresence(const FString& StatusText);
+	void HandleSetPresenceCompleted(const FUniqueNetId& UserId, bool bWasSuccessful);
+
+	void QueryPresenceFor(const FUniqueNetIdRef& Target);
+	void HandleQueryPresenceCompleted(const FUniqueNetId& UserId, bool bWasSuccessful);
+
+	// Multicast - fires whenever the SDK pushes a presence update for any
+	// user (after a query response, or when a friend's status changes).
+	void HandlePresenceReceived(const FUniqueNetId& UserId, const TSharedRef<FOnlineUserPresence>& Presence);
+	FDelegateHandle PresenceReceivedDelegateHandle;
+
 	// Manual triggers for the hot paths that can't auto-fire:
 	// checkout would charge the player every launch, redeem would burn through
 	// entitlements every launch, player reports should never fire silently,
@@ -225,6 +241,13 @@ protected:
 	//   TestAcceptLastInvite
 	//     - bypasses the EOS Social Overlay accept popup; replays the
 	//       most recent cached InviteResult through JoinSession
+	//   TestQueryPresence <ProductUserId>
+	//     - async query of a remote user's presence; result lands in
+	//       HandlePresenceReceived + a one-shot HandleQueryPresenceCompleted
+	//   TestSetGamePresence <StatusText>
+	//     - publishes StatusText as the local user's rich-text presence;
+	//       EGS Social Overlay shows it on friend rows as
+	//       "EOS_OSS_Tutorial - <StatusText>"
 	//
 	// Companion CLI flag (launch-time, not console):
 	//   -NoAutoJoin  - skip the post-login auto-find/join chain so the
@@ -250,6 +273,12 @@ protected:
 	// been received this session.
 	UFUNCTION(Exec)
 	void TestAcceptLastInvite();
+
+	UFUNCTION(Exec)
+	void TestQueryPresence(const FString& TargetProductUserId);
+
+	UFUNCTION(Exec)
+	void TestSetGamePresence(const FString& StatusText);
 
 public:
 	// RPCs are declared outside the P2PMODE guard because UHT can't see preprocessor

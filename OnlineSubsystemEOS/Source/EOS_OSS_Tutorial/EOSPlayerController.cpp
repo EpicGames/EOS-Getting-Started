@@ -12,6 +12,7 @@
 #include "IOnlineSubsystemEOS.h"                    // Tutorial 11: IOnlineSubsystemEOS for the EOS-only IOnlinePlayerReportEOS getter.
 #include "Interfaces/OnlinePlayerReportEOSInterface.h" // Tutorial 11: IOnlinePlayerReportEOS - EOS-specific, no generic OSS abstraction.
 #include "Interfaces/OnlinePlayerSanctionEOSInterface.h" // Tutorial 12: IOnlinePlayerSanctionEOS - EOS-specific, no generic OSS abstraction.
+#include "Interfaces/OnlinePresenceInterface.h" // Tutorial 13: IOnlinePresence - generic OSS interface, EOS-backed via OSS-EOS plugin.
 #include "Serialization/JsonWriter.h"               // Tutorial 11: building the optional JSON Context blob for the report.
 #include "Policies/CondensedJsonPrintPolicy.h"      // Tutorial 11: compact JSON output policy used by TJsonWriter above.
 #include "Containers/Array.h"
@@ -77,6 +78,17 @@ void AEOSPlayerController::BeginPlay()
             SessionInviteReceivedDelegateHandle =
                 Session->AddOnSessionInviteReceivedDelegate_Handle(
                     FOnSessionInviteReceivedDelegate::CreateUObject(this, &ThisClass::HandleSessionInviteReceived));
+        }
+
+        // Tutorial 13: Bind OnPresenceReceived. Multicast - fires for any
+        // user whose presence changed (after a query, or unsolicited from
+        // the SDK pushing friend updates).
+        IOnlinePresencePtr Presence = Subsystem ? Subsystem->GetPresenceInterface() : nullptr;
+        if (Presence.IsValid())
+        {
+            PresenceReceivedDelegateHandle =
+                Presence->AddOnPresenceReceivedDelegate_Handle(
+                    FOnPresenceReceivedDelegate::CreateUObject(this, &ThisClass::HandlePresenceReceived));
         }
     }
 
@@ -221,6 +233,14 @@ void AEOSPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
         {
             Entitlements->ClearOnQueryEntitlementsCompleteDelegate_Handle(QueryEntitlementsDelegateHandle);
             QueryEntitlementsDelegateHandle.Reset();
+        }
+
+        // Tutorial 13: Presence delegate bound in BeginPlay (client-only).
+        IOnlinePresencePtr Presence = Subsystem->GetPresenceInterface();
+        if (Presence.IsValid() && PresenceReceivedDelegateHandle.IsValid())
+        {
+            Presence->ClearOnPresenceReceivedDelegate_Handle(PresenceReceivedDelegateHandle);
+            PresenceReceivedDelegateHandle.Reset();
         }
     }
 
@@ -2478,4 +2498,177 @@ void AEOSPlayerController::TestAcceptLastInvite()
     LastReceivedInvite.Reset();
 
     JoinSession();
+}
+
+// =====================================================================
+// Tutorial 13: EOS Presence - publish the local user's status (state +
+// rich text + key/value properties) and read remote players' presence
+// via the generic IOnlinePresence interface (EOS-backed by OSS-EOS).
+// Mode-agnostic. Sits above the session-attached presence (Tutorial
+// 4/7's bUsesPresence join-time flip), which only declares "I'm in
+// session X" - this layer adds custom status text the overlay surfaces
+// on friend rows.
+// =====================================================================
+
+void AEOSPlayerController::SetGamePresence(const FString& StatusText)
+{
+    // Tutorial 13: Publish status + properties for the local user. The
+    // EOS Social Overlay reads StatusStr verbatim. Properties are a
+    // game-defined key/value map (max 32 keys, key <= 64 chars,
+    // value <= 255 chars per the EOS SDK's EOS_PRESENCE_DATA_* limits).
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlinePresencePtr Presence = Subsystem ? Subsystem->GetPresenceInterface() : nullptr;
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    FUniqueNetIdPtr LocalNetId = Identity.IsValid() ? Identity->GetUniquePlayerId(0) : nullptr;
+    if (!Presence.IsValid() || !LocalNetId.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::SetGamePresence] Presence/Identity unavailable."));
+        return;
+    }
+
+    FOnlineUserPresenceStatus Status;
+    Status.State = EOnlinePresenceState::Online;
+    Status.StatusStr = StatusText;
+    // Example property - real games would set this to the current map,
+    // game mode, character class, etc. Tutorial uses a static value to
+    // demonstrate the mechanism without coupling to gameplay state.
+    Status.Properties.Add(TEXT("Map"), FVariantData(FString(TEXT("ThirdPersonMap"))));
+
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::SetGamePresence] Setting status: \"%s\""),
+        *StatusText);
+
+    Presence->SetPresence(*LocalNetId, Status,
+        IOnlinePresence::FOnPresenceTaskCompleteDelegate::CreateUObject(this, &ThisClass::HandleSetPresenceCompleted));
+}
+
+void AEOSPlayerController::HandleSetPresenceCompleted(const FUniqueNetId& UserId, bool bWasSuccessful)
+{
+    // Tutorial 13: SetPresence completion. Async; can fail if the SDK
+    // rejects the status (e.g. exceeds rich-text length limits).
+    if (bWasSuccessful)
+    {
+        UE_LOG(LogEOSOSSTutorial, Verbose,
+            TEXT("[AEOSPlayerController::HandleSetPresenceCompleted] Presence updated for %s."),
+            *UserId.ToDebugString());
+    }
+    else
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::HandleSetPresenceCompleted] SetPresence failed for %s."),
+            *UserId.ToDebugString());
+    }
+}
+
+void AEOSPlayerController::QueryPresenceFor(const FUniqueNetIdRef& Target)
+{
+    // Tutorial 13: Async query of a remote user's presence. Result lands
+    // in HandleQueryPresenceCompleted (one-shot) and the multicast
+    // OnPresenceReceived (HandlePresenceReceived). The cache is
+    // populated either way, so subsequent GetCachedPresence reads are
+    // sync.
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlinePresencePtr Presence = Subsystem ? Subsystem->GetPresenceInterface() : nullptr;
+    if (!Presence.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::QueryPresenceFor] Presence interface null."));
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::QueryPresenceFor] Querying %s."),
+        *Target->ToDebugString());
+
+    Presence->QueryPresence(*Target,
+        IOnlinePresence::FOnPresenceTaskCompleteDelegate::CreateUObject(this, &ThisClass::HandleQueryPresenceCompleted));
+}
+
+void AEOSPlayerController::TestQueryPresence(const FString& TargetProductUserId)
+{
+    // Tutorial 13: Console wrapper - resolves a raw PUID to an
+    // FUniqueNetIdRef and forwards to QueryPresenceFor.
+    if (TargetProductUserId.IsEmpty())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::TestQueryPresence] ProductUserId required - copy it from the other client's Login succeeded log line."));
+        return;
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    if (!Identity.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestQueryPresence] Identity interface null."));
+        return;
+    }
+
+    // Same shape as TestSendSessionInvite: prefix with "|" so OSS-EOS
+    // CreateUniquePlayerId parses as PUID-only.
+    const FString NetIdString = FString::Printf(TEXT("|%s"), *TargetProductUserId);
+    FUniqueNetIdPtr Target = Identity->CreateUniquePlayerId(NetIdString);
+    if (!Target.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::TestQueryPresence] CreateUniquePlayerId failed for '%s'."),
+            *TargetProductUserId);
+        return;
+    }
+
+    QueryPresenceFor(Target.ToSharedRef());
+}
+
+void AEOSPlayerController::HandleQueryPresenceCompleted(const FUniqueNetId& UserId, bool bWasSuccessful)
+{
+    // Tutorial 13: Query completion. On success, GetCachedPresence reads
+    // the populated cache. The same data also lands via
+    // OnPresenceReceived (HandlePresenceReceived) below.
+    if (!bWasSuccessful)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::HandleQueryPresenceCompleted] QueryPresence failed for %s."),
+            *UserId.ToDebugString());
+        return;
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlinePresencePtr Presence = Subsystem ? Subsystem->GetPresenceInterface() : nullptr;
+    if (!Presence.IsValid())
+    {
+        return;
+    }
+
+    TSharedPtr<FOnlineUserPresence> CachedPresence;
+    if (Presence->GetCachedPresence(UserId, CachedPresence) == EOnlineCachedResult::Success && CachedPresence.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Verbose,
+            TEXT("[AEOSPlayerController::HandleQueryPresenceCompleted] %s -> %s"),
+            *UserId.ToDebugString(), *CachedPresence->ToDebugString());
+    }
+}
+
+void AEOSPlayerController::HandlePresenceReceived(const FUniqueNetId& UserId, const TSharedRef<FOnlineUserPresence>& Presence)
+{
+    // Tutorial 13: Multicast - fires for any user whose presence
+    // changed. Logged for visibility; real games would refresh UI bound
+    // to that user (friends list status, in-session player rows, etc.).
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::HandlePresenceReceived] %s -> %s"),
+        *UserId.ToDebugString(), *Presence->ToDebugString());
+}
+
+void AEOSPlayerController::TestSetGamePresence(const FString& StatusText)
+{
+    // Tutorial 13: Console wrapper for SetGamePresence. Lets the demo
+    // show exactly when presence changes by tying it to a manual
+    // trigger - no auto-fire on login or join, so the EOS Social Overlay
+    // surfaces the rich text the user explicitly set without races
+    // against rapid back-to-back presence updates.
+    if (StatusText.IsEmpty())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::TestSetGamePresence] StatusText required."));
+        return;
+    }
+
+    SetGamePresence(StatusText);
 }
