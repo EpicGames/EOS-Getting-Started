@@ -227,14 +227,7 @@ protected:
 	void HandleFriendsChange();
 	FDelegateHandle FriendsChangeDelegateHandle;
 
-	// Tutorial 13: UserInfo - resolve a PUID to a human-readable display
-	// name + nickname + external account info. Used to humanize remote
-	// players in any in-game UI (friends list, in-session player rows).
-	void QueryUserInfoFor(const FUniqueNetIdRef& Target);
-	void HandleQueryUserInfoCompleted(int32 LocalUserNum, bool bWasSuccessful, const TArray<FUniqueNetIdRef>& UserIds, const FString& ErrorStr);
-	FDelegateHandle QueryUserInfoCompleteDelegateHandle;
-
-	// Tutorial 13: External UI - programmatically open the EOS Social
+// Tutorial 13: External UI - programmatically open the EOS Social
 	// Overlay to the Friends list. NOTE: OSS-EOS only implements
 	// ShowFriendsUI; ShowProfileUI / ShowInviteUI are stubbed
 	// ("not implemented") because the EOS SDK has no equivalent
@@ -275,12 +268,7 @@ protected:
 	//   TestReadFriends
 	//     - fetches the local user's friends list ("default" filter);
 	//       on success logs each friend's id + cached presence summary
-	//   TestQueryUserInfo <EpicAccountId|PUID>
-	//     - takes the FULL composite id (same format printed in every
-	//       Login succeeded log and [Friend] entries). GetUserInfo is
-	//       a cache lookup keyed by EpicAccountId+PUID, so PUID-only
-	//       wouldn't match a cached entry.
-	//   TestShowFriendsOverlay
+//   TestShowFriendsOverlay
 	//     - opens the EOS Social Overlay to the Friends list view.
 	//       Profile/invite overlay views are user-navigated only -
 	//       OSS-EOS does not expose programmatic open for those.
@@ -319,10 +307,7 @@ protected:
 	UFUNCTION(Exec)
 	void TestReadFriends();
 
-	UFUNCTION(Exec)
-	void TestQueryUserInfo(const FString& TargetEpicAndPuid);
-
-	UFUNCTION(Exec)
+UFUNCTION(Exec)
 	void TestShowFriendsOverlay();
 
 public:
