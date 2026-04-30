@@ -215,11 +215,14 @@ void AEOSGameSession::CreateSession(FName KeyName, FString KeyValue) // Dedicate
         // Set session settings.
         TSharedRef<FOnlineSessionSettings> SessionSettings = MakeShared<FOnlineSessionSettings>();
         SessionSettings->NumPublicConnections = MaxNumberOfPlayersInSession; // We will test our sessions with 2 players to keep things simple.
-        SessionSettings->bShouldAdvertise = true; // Creates a public match that is searchable by clients. Dedicated-server sessions are not presence-joinable - clients discover them via FindSessions.
-        SessionSettings->bUsesPresence = false;   // No presence on dedicated server - presence requires a local signed-in user.
-        SessionSettings->bAllowJoinViaPresence = false; // Superset by bShouldAdvertise and will be true on the backend.
-        SessionSettings->bAllowJoinViaPresenceFriendsOnly = false; // Superset by bShouldAdvertise and will be true on the backend.
-        SessionSettings->bAllowInvites = false;    // Invites disabled for this tutorial; enabling would require presence and a local user.
+        SessionSettings->bShouldAdvertise = true; // Creates a public match that is searchable by clients.
+        // Tutorial 3: Server has no local user, so the SDK rejects bUsesPresence=true
+        // here with EOS_InvalidUser ("bPresenceEnabled requires a valid local user").
+        // Clients flip these client-locally after JoinSession - see HandleJoinSessionCompleted.
+        SessionSettings->bUsesPresence = false;
+        SessionSettings->bAllowJoinViaPresence = false;
+        SessionSettings->bAllowJoinViaPresenceFriendsOnly = false;
+        SessionSettings->bAllowInvites = true; // bAllowInvites is fine here - clients send invites for this session.
         SessionSettings->bAllowJoinInProgress = false; // Once the session is started, no one can join.
         SessionSettings->bIsDedicated = true; // Session created on dedicated server.
         SessionSettings->bUseLobbiesIfAvailable = false; // This is an EOS Session not an EOS Lobby as they aren't supported on Dedicated Servers.

@@ -62,6 +62,22 @@ void AEOSPlayerController::BeginPlay()
     if (!IsRunningDedicatedServer())
     {
         Login(); // Call login function only on the client.
+
+        // Tutorial 4 + 7: Bind the OSS invite delegates once per controller.
+        // Mode-agnostic - the same delegates fire for server-mode sessions
+        // and P2P lobbies, and for both Exec-driven and overlay-driven
+        // invites. Cleared in EndPlay alongside the other OSS handles.
+        IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+        IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+        if (Session.IsValid())
+        {
+            SessionInviteAcceptedDelegateHandle =
+                Session->AddOnSessionUserInviteAcceptedDelegate_Handle(
+                    FOnSessionUserInviteAcceptedDelegate::CreateUObject(this, &ThisClass::HandleSessionUserInviteAccepted));
+            SessionInviteReceivedDelegateHandle =
+                Session->AddOnSessionInviteReceivedDelegate_Handle(
+                    FOnSessionInviteReceivedDelegate::CreateUObject(this, &ThisClass::HandleSessionInviteReceived));
+        }
     }
 
 #if !P2PMODE
@@ -145,6 +161,17 @@ void AEOSPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
             FindSessionsDelegateHandle.Reset();
             Session->ClearOnJoinSessionCompleteDelegate_Handle(JoinSessionDelegateHandle);
             JoinSessionDelegateHandle.Reset();
+            // Tutorial 4 + 7: Invite delegates bound in BeginPlay (client-only).
+            if (SessionInviteAcceptedDelegateHandle.IsValid())
+            {
+                Session->ClearOnSessionUserInviteAcceptedDelegate_Handle(SessionInviteAcceptedDelegateHandle);
+                SessionInviteAcceptedDelegateHandle.Reset();
+            }
+            if (SessionInviteReceivedDelegateHandle.IsValid())
+            {
+                Session->ClearOnSessionInviteReceivedDelegate_Handle(SessionInviteReceivedDelegateHandle);
+                SessionInviteReceivedDelegateHandle.Reset();
+            }
 #if P2PMODE
             Session->ClearOnCreateSessionCompleteDelegate_Handle(CreateLobbyDelegateHandle);
             CreateLobbyDelegateHandle.Reset();
@@ -332,9 +359,22 @@ void AEOSPlayerController::HandleLoginCompleted(int32 LocalUserNum, bool bWasSuc
 
         LoadTitleData();  // Load any game-related data (in this case a string output to logs).
         LoadPlayerData(); // Load save-game data.
-        // Tutorial 12: Sanctions query first - GetSanctions chains to
-        // FindSessions from its callback, gated by bRestrictMatchmaking.
-        GetSanctions(UserId);
+
+        // Tutorial 4 + 7: Test/debug CLI flag - skip the auto-find/join chain.
+        // Lets the second client log in but stay out of the session so the
+        // invite-driven path (TestSendSessionInvite from the host, accept
+        // via overlay or TestAcceptLastInvite) is the only way it joins.
+        if (FParse::Param(FCommandLine::Get(), TEXT("NoAutoJoin")))
+        {
+            UE_LOG(LogEOSOSSTutorial, Verbose,
+                TEXT("[AEOSPlayerController::HandleLoginCompleted] -NoAutoJoin set; skipping GetSanctions/FindSessions chain."));
+        }
+        else
+        {
+            // Tutorial 12: Sanctions query first - GetSanctions chains to
+            // FindSessions from its callback, gated by bRestrictMatchmaking.
+            GetSanctions(UserId);
+        }
 
         // Tutorial 10: Fan out the new Ecom flow's three queries. Catalog offers,
         // existing receipts, and current entitlements. See header for safety notes.
@@ -521,6 +561,21 @@ void AEOSPlayerController::JoinSession()
         const FName LocalSessionName = TEXT("SessionName");
         UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::JoinSession] Joining session."));
 #endif
+
+        // Tutorial 4: Mark this join as the local user's presence session so
+        // the EOS Social Overlay attaches to it (surfaces "in session" + the
+        // Invite-to-Game button). Server-mode sessions are created with
+        // bUsesPresence=false (server has no local user; SDK rejects
+        // bPresenceEnabled=true at create). The game-side fix per
+        // OnlineSessionEOS.cpp:4890 is to set bUsesPresence=true on the
+        // search result before JoinSession - the OSS reads it from
+        // SessionSettings and passes bPresenceEnabled=true to the SDK,
+        // which the SDK accepts because the *joiner* has a local user.
+        // P2P lobbies already create with these flags true, so this is a
+        // no-op there.
+        SessionToJoin->Session.SessionSettings.bUsesPresence = true;
+        SessionToJoin->Session.SessionSettings.bAllowJoinViaPresence = true;
+
         if (!Session->JoinSession(0, LocalSessionName, SessionToJoin.GetValue()))
         {
 #if P2PMODE
@@ -1353,10 +1408,13 @@ void AEOSPlayerController::CreateLobby(FName KeyName, FString KeyValue)
         TSharedRef<FOnlineSessionSettings> SessionSettings = MakeShared<FOnlineSessionSettings>();
         SessionSettings->NumPublicConnections = 3; // Host + 2 non-hosts for the Tutorial 9 P2P kick-telemetry test.
         SessionSettings->bShouldAdvertise = true; // This creates a public match and will be searchable.
-        SessionSettings->bUsesPresence = false;   // No presence on dedicated server. This requires a local user.
-        SessionSettings->bAllowJoinViaPresence = false;
-        SessionSettings->bAllowJoinViaPresenceFriendsOnly = false;
-        SessionSettings->bAllowInvites = false;    // Invites disabled for this tutorial; enabling would require presence and a local user.
+        // Tutorial 7: P2P lobbies are presence-native and have a local user
+        // (the host). Enable presence + invites so the EOS Social Overlay
+        // reflects "in lobby" and friends can be invited via overlay or Exec.
+        SessionSettings->bUsesPresence = true;
+        SessionSettings->bAllowJoinViaPresence = true;
+        SessionSettings->bAllowJoinViaPresenceFriendsOnly = false; // any friend can join via overlay
+        SessionSettings->bAllowInvites = true;
         SessionSettings->bAllowJoinInProgress = false; // Once the session is started, no one can join.
         SessionSettings->bIsDedicated = false; // P2P lobby, not a dedicated-server session.
         SessionSettings->bUseLobbiesIfAvailable = true; // For P2P we will use a lobby instead of a session.
@@ -2255,4 +2313,169 @@ void AEOSPlayerController::TestCreateSanctionAppeal(const FString& ReferenceId)
         *ReferenceId);
 
     CreateSanctionAppeal(*LocalNetId, ReferenceId);
+}
+
+void AEOSPlayerController::SendSessionInvite(const FUniqueNetIdRef& Target)
+{
+    // Tutorial 4 + 7: Send a session/lobby invite to a specific PUID.
+    // Mode-agnostic - the OSS routes to EOS_Sessions_SendInvite for
+    // server-mode and EOS_Lobby_SendInvite for P2P based on the named
+    // session's flavor (bUseLobbiesIfAvailable).
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    FUniqueNetIdPtr LocalNetId = Identity.IsValid() ? Identity->GetUniquePlayerId(0) : nullptr;
+    if (!Session.IsValid() || !LocalNetId.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::SendSessionInvite] OSS session/identity unavailable."));
+        return;
+    }
+
+#if P2PMODE
+    const FName ActiveSessionName = LobbyName;
+#else
+    const FName ActiveSessionName = TEXT("SessionName");
+#endif
+
+    if (!Session->GetNamedSession(ActiveSessionName))
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::SendSessionInvite] No active named session '%s' - join a lobby/session first."),
+            *ActiveSessionName.ToString());
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::SendSessionInvite] Inviting %s to '%s'."),
+        *Target->ToDebugString(), *ActiveSessionName.ToString());
+
+    if (!Session->SendSessionInviteToFriend(*LocalNetId, ActiveSessionName, *Target))
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::SendSessionInvite] SendSessionInviteToFriend call failed - target may not have played this game (no EOS Connect record)."));
+    }
+}
+
+void AEOSPlayerController::TestSendSessionInvite(const FString& TargetProductUserId)
+{
+    // Tutorial 4 + 7: Console wrapper - resolve a raw PUID string into
+    // an FUniqueNetIdRef via the identity interface, then forward to
+    // SendSessionInvite. Avoids the friends-list dance (a separate
+    // audit candidate).
+    if (TargetProductUserId.IsEmpty())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::TestSendSessionInvite] ProductUserId required - copy it from the other client's Login succeeded log line."));
+        return;
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    if (!Identity.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestSendSessionInvite] Identity interface null."));
+        return;
+    }
+
+    // OSS-EOS expects the FUniqueNetIdEOS string form "<EpicAccount>|<PUID>".
+    // For invite targets we only need the PUID half - prefix with the
+    // separator so CreateUniquePlayerId parses it as PUID-only.
+    const FString NetIdString = FString::Printf(TEXT("|%s"), *TargetProductUserId);
+    FUniqueNetIdPtr Target = Identity->CreateUniquePlayerId(NetIdString);
+    if (!Target.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::TestSendSessionInvite] CreateUniquePlayerId failed for '%s'."),
+            *TargetProductUserId);
+        return;
+    }
+
+    SendSessionInvite(Target.ToSharedRef());
+}
+
+void AEOSPlayerController::HandleSessionUserInviteAccepted(
+    const bool bWasSuccessful, const int32 ControllerId, FUniqueNetIdPtr UserId,
+    const FOnlineSessionSearchResult& InviteResult)
+{
+    // Tutorial 4 + 7: Fired when the local user accepts an invite via
+    // the EOS Social Overlay (or any other accept path). The InviteResult
+    // is already a resolved FOnlineSessionSearchResult, so we skip
+    // FindSessions and go straight to JoinSession.
+    if (!bWasSuccessful || !InviteResult.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::HandleSessionUserInviteAccepted] Invite accepted but result invalid (bWasSuccessful=%d)."),
+            bWasSuccessful ? 1 : 0);
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::HandleSessionUserInviteAccepted] Invite accepted - joining."));
+
+    SessionToJoin = InviteResult;
+
+    // Resolve the connect string the same way HandleFindSessionsCompleted does.
+    // Server-mode HandleJoinSessionCompleted overrides this to 127.0.0.1:7777,
+    // but the P2P branch uses ConnectString directly for ClientTravel - so it
+    // MUST be populated for the invite-accept path too, not just FindSessions.
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+    if (Session.IsValid())
+    {
+        Session->GetResolvedConnectString(InviteResult, NAME_GamePort, ConnectString);
+    }
+
+    JoinSession();
+}
+
+void AEOSPlayerController::HandleSessionInviteReceived(
+    const FUniqueNetId& UserId, const FUniqueNetId& FromId, const FString& AppId,
+    const FOnlineSessionSearchResult& InviteResult)
+{
+    // Tutorial 4 + 7: Fired when the SDK receives an invite for the local
+    // user. The EOS Social Overlay handles the accept popup; for testing
+    // without the overlay we cache the InviteResult so TestAcceptLastInvite
+    // can replay it. Real games would surface a custom in-game UI bound
+    // to the same cached result.
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::HandleSessionInviteReceived] Invite from %s (valid=%d)."),
+        *FromId.ToDebugString(), InviteResult.IsValid() ? 1 : 0);
+
+    if (InviteResult.IsValid())
+    {
+        LastReceivedInvite = InviteResult;
+    }
+}
+
+void AEOSPlayerController::TestAcceptLastInvite()
+{
+    // Tutorial 4 + 7: Console accept path for the most recent invite.
+    // Bypasses the EOS Social Overlay - useful for headless tests or
+    // when the overlay isn't visible (recording, fullscreen, etc.).
+    if (!LastReceivedInvite.IsSet() || !LastReceivedInvite->IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::TestAcceptLastInvite] No cached invite - send one with TestSendSessionInvite from the other client first."));
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::TestAcceptLastInvite] Accepting cached invite via JoinSession."));
+
+    SessionToJoin = LastReceivedInvite.GetValue();
+
+    // Resolve the connect string. Required for the P2P ClientTravel path
+    // and harmless in server-mode (HandleJoinSessionCompleted overrides it).
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+    if (Session.IsValid())
+    {
+        Session->GetResolvedConnectString(LastReceivedInvite.GetValue(), NAME_GamePort, ConnectString);
+    }
+
+    // Consume the cache - re-accepting the same invite would re-trigger
+    // the join, which the OSS would reject as already-joined.
+    LastReceivedInvite.Reset();
+
+    JoinSession();
 }

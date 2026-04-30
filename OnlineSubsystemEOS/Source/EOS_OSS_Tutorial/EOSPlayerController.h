@@ -187,11 +187,30 @@ protected:
 	// real games bind a dropdown to EPlayerSanctionAppealReason.
 	void CreateSanctionAppeal(const FUniqueNetId& UserId, FString ReferenceId);
 
-	// Manual triggers for the four hot paths that can't auto-fire:
+	// Tutorial 4 + 7: Session/lobby invite send + receive. Mode-agnostic
+	// at the OSS layer - same delegates fire for server-mode sessions and
+	// P2P lobbies. Overlay-driven invites land on the same delegates.
+	void SendSessionInvite(const FUniqueNetIdRef& Target);
+
+	void HandleSessionUserInviteAccepted(const bool bWasSuccessful, const int32 ControllerId, FUniqueNetIdPtr UserId, const FOnlineSessionSearchResult& InviteResult);
+	FDelegateHandle SessionInviteAcceptedDelegateHandle;
+
+	void HandleSessionInviteReceived(const FUniqueNetId& UserId, const FUniqueNetId& FromId, const FString& AppId, const FOnlineSessionSearchResult& InviteResult);
+	FDelegateHandle SessionInviteReceivedDelegateHandle;
+
+	// Cached most-recent received invite. Populated by HandleSessionInviteReceived,
+	// consumed by TestAcceptLastInvite. Lets us demo the invite-accept path
+	// from the console without relying on the EOS Social Overlay UI.
+	TOptional<FOnlineSessionSearchResult> LastReceivedInvite;
+
+	// Manual triggers for the hot paths that can't auto-fire:
 	// checkout would charge the player every launch, redeem would burn through
 	// entitlements every launch, player reports should never fire silently,
-	// and sanction appeals need a Dev Portal ReferenceId.
-	// All take an arg since the target / message can't be guessed.
+	// sanction appeals need a Dev Portal ReferenceId, session invites need
+	// a target PUID, and invite-accept usually goes through the overlay so
+	// the cached-invite accept is just for testing without overlay UI.
+	// All take an arg (or are no-arg + cache-driven) since their inputs
+	// can't be guessed.
 	//
 	// Usage in the in-game console (`~`):
 	//   TestCheckoutOffer <OfferId>
@@ -201,6 +220,16 @@ protected:
 	//       (LobbyName for P2P, NAME_GameSession for server)
 	//   TestCreateSanctionAppeal <ReferenceId>
 	//     - copy ReferenceId from the active sanction in Dev Portal
+	//   TestSendSessionInvite <ProductUserId>
+	//     - copy the target PUID from the other client's login log
+	//   TestAcceptLastInvite
+	//     - bypasses the EOS Social Overlay accept popup; replays the
+	//       most recent cached InviteResult through JoinSession
+	//
+	// Companion CLI flag (launch-time, not console):
+	//   -NoAutoJoin  - skip the post-login auto-find/join chain so the
+	//                  invite path is the only way to enter a session.
+	//                  Pair with TestSendSessionInvite from the host.
 	UFUNCTION(Exec)
 	void TestCheckoutOffer(const FString& OfferId);
 
@@ -212,6 +241,15 @@ protected:
 
 	UFUNCTION(Exec)
 	void TestCreateSanctionAppeal(const FString& ReferenceId);
+
+	UFUNCTION(Exec)
+	void TestSendSessionInvite(const FString& TargetProductUserId);
+
+	// Accept the most recently received invite via the cached InviteResult,
+	// bypassing the EOS Social Overlay accept popup. No-op if no invite has
+	// been received this session.
+	UFUNCTION(Exec)
+	void TestAcceptLastInvite();
 
 public:
 	// RPCs are declared outside the P2PMODE guard because UHT can't see preprocessor
