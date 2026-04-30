@@ -219,6 +219,30 @@ protected:
 	void HandlePresenceReceived(const FUniqueNetId& UserId, const TSharedRef<FOnlineUserPresence>& Presence);
 	FDelegateHandle PresenceReceivedDelegateHandle;
 
+	// Tutorial 13: Friends - read the local user's friends list and react
+	// to status changes. Pairs with Presence (query a friend's PUID for
+	// their rich-text status) and UserInfo (resolve PUID -> display name).
+	void ReadFriendsList();
+	void HandleReadFriendsListCompleted(int32 LocalUserNum, bool bWasSuccessful, const FString& ListName, const FString& ErrorStr);
+	void HandleFriendsChange();
+	FDelegateHandle FriendsChangeDelegateHandle;
+
+	// Tutorial 13: UserInfo - resolve a PUID to a human-readable display
+	// name + nickname + external account info. Used to humanize remote
+	// players in any in-game UI (friends list, in-session player rows).
+	void QueryUserInfoFor(const FUniqueNetIdRef& Target);
+	void HandleQueryUserInfoCompleted(int32 LocalUserNum, bool bWasSuccessful, const TArray<FUniqueNetIdRef>& UserIds, const FString& ErrorStr);
+	FDelegateHandle QueryUserInfoCompleteDelegateHandle;
+
+	// Tutorial 13: External UI - programmatically open the EOS Social
+	// Overlay to the Friends list. NOTE: OSS-EOS only implements
+	// ShowFriendsUI; ShowProfileUI / ShowInviteUI are stubbed
+	// ("not implemented") because the EOS SDK has no equivalent
+	// entry points. Other overlay views (profile, invite picker)
+	// are reachable only via user navigation inside the overlay
+	// itself, not from game code.
+	void ShowFriendsOverlay();
+
 	// Manual triggers for the hot paths that can't auto-fire:
 	// checkout would charge the player every launch, redeem would burn through
 	// entitlements every launch, player reports should never fire silently,
@@ -248,6 +272,16 @@ protected:
 	//     - publishes StatusText as the local user's rich-text presence;
 	//       EGS Social Overlay shows it on friend rows as
 	//       "EOS_OSS_Tutorial - <StatusText>"
+	//   TestReadFriends
+	//     - fetches the local user's friends list ("default" filter);
+	//       on success logs each friend's id + cached presence summary
+	//   TestQueryUserInfo <ProductUserId>
+	//     - resolves a PUID to a display name via QueryUserInfo;
+	//       result lands in HandleQueryUserInfoCompleted
+	//   TestShowFriendsOverlay
+	//     - opens the EOS Social Overlay to the Friends list view.
+	//       Profile/invite overlay views are user-navigated only -
+	//       OSS-EOS does not expose programmatic open for those.
 	//
 	// Companion CLI flag (launch-time, not console):
 	//   -NoAutoJoin  - skip the post-login auto-find/join chain so the
@@ -279,6 +313,15 @@ protected:
 
 	UFUNCTION(Exec)
 	void TestSetGamePresence(const FString& StatusText);
+
+	UFUNCTION(Exec)
+	void TestReadFriends();
+
+	UFUNCTION(Exec)
+	void TestQueryUserInfo(const FString& TargetProductUserId);
+
+	UFUNCTION(Exec)
+	void TestShowFriendsOverlay();
 
 public:
 	// RPCs are declared outside the P2PMODE guard because UHT can't see preprocessor

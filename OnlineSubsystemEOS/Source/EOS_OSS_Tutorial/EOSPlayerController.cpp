@@ -13,6 +13,9 @@
 #include "Interfaces/OnlinePlayerReportEOSInterface.h" // Tutorial 11: IOnlinePlayerReportEOS - EOS-specific, no generic OSS abstraction.
 #include "Interfaces/OnlinePlayerSanctionEOSInterface.h" // Tutorial 12: IOnlinePlayerSanctionEOS - EOS-specific, no generic OSS abstraction.
 #include "Interfaces/OnlinePresenceInterface.h" // Tutorial 13: IOnlinePresence - generic OSS interface, EOS-backed via OSS-EOS plugin.
+#include "Interfaces/OnlineFriendsInterface.h" // Tutorial 13: IOnlineFriends - read friends list, friend change notifications.
+#include "Interfaces/OnlineUserInterface.h"    // Tutorial 13: IOnlineUser - resolve PUIDs to display names via QueryUserInfo.
+#include "Interfaces/OnlineExternalUIInterface.h" // Tutorial 13: IOnlineExternalUI - programmatically open EOS Social Overlay views.
 #include "Serialization/JsonWriter.h"               // Tutorial 11: building the optional JSON Context blob for the report.
 #include "Policies/CondensedJsonPrintPolicy.h"      // Tutorial 11: compact JSON output policy used by TJsonWriter above.
 #include "Containers/Array.h"
@@ -89,6 +92,24 @@ void AEOSPlayerController::BeginPlay()
             PresenceReceivedDelegateHandle =
                 Presence->AddOnPresenceReceivedDelegate_Handle(
                     FOnPresenceReceivedDelegate::CreateUObject(this, &ThisClass::HandlePresenceReceived));
+        }
+
+        // Tutorial 13: Friends + UserInfo notification binds. Both are
+        // per-LocalUserNum so we bind for index 0 (the only local user).
+        IOnlineFriendsPtr Friends = Subsystem ? Subsystem->GetFriendsInterface() : nullptr;
+        if (Friends.IsValid())
+        {
+            FriendsChangeDelegateHandle =
+                Friends->AddOnFriendsChangeDelegate_Handle(0,
+                    FOnFriendsChangeDelegate::CreateUObject(this, &ThisClass::HandleFriendsChange));
+        }
+
+        IOnlineUserPtr User = Subsystem ? Subsystem->GetUserInterface() : nullptr;
+        if (User.IsValid())
+        {
+            QueryUserInfoCompleteDelegateHandle =
+                User->AddOnQueryUserInfoCompleteDelegate_Handle(0,
+                    FOnQueryUserInfoCompleteDelegate::CreateUObject(this, &ThisClass::HandleQueryUserInfoCompleted));
         }
     }
 
@@ -241,6 +262,21 @@ void AEOSPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
         {
             Presence->ClearOnPresenceReceivedDelegate_Handle(PresenceReceivedDelegateHandle);
             PresenceReceivedDelegateHandle.Reset();
+        }
+
+        // Tutorial 13: Friends + UserInfo binds (also client-only).
+        IOnlineFriendsPtr Friends = Subsystem->GetFriendsInterface();
+        if (Friends.IsValid() && FriendsChangeDelegateHandle.IsValid())
+        {
+            Friends->ClearOnFriendsChangeDelegate_Handle(0, FriendsChangeDelegateHandle);
+            FriendsChangeDelegateHandle.Reset();
+        }
+
+        IOnlineUserPtr User = Subsystem->GetUserInterface();
+        if (User.IsValid() && QueryUserInfoCompleteDelegateHandle.IsValid())
+        {
+            User->ClearOnQueryUserInfoCompleteDelegate_Handle(0, QueryUserInfoCompleteDelegateHandle);
+            QueryUserInfoCompleteDelegateHandle.Reset();
         }
     }
 
@@ -2501,13 +2537,24 @@ void AEOSPlayerController::TestAcceptLastInvite()
 }
 
 // =====================================================================
-// Tutorial 13: EOS Presence - publish the local user's status (state +
-// rich text + key/value properties) and read remote players' presence
-// via the generic IOnlinePresence interface (EOS-backed by OSS-EOS).
-// Mode-agnostic. Sits above the session-attached presence (Tutorial
-// 4/7's bUsesPresence join-time flip), which only declares "I'm in
-// session X" - this layer adds custom status text the overlay surfaces
-// on friend rows.
+// Tutorial 13: EOS Social - Presence + Friends + UserInfo + Overlay.
+// Client-only (all four interfaces require a local user). Wraps four
+// generic OSS interfaces, all EOS-backed by OSS-EOS plugin's UserManagerEOS:
+//   - IOnlinePresence: publish + query rich-text status (custom
+//     game-defined text the EOS Social Overlay surfaces on friend rows).
+//   - IOnlineFriends: read the local user's friends list, react to
+//     friend status changes via OnFriendsChange.
+//   - IOnlineUser: resolve a PUID to a human-readable display name
+//     via QueryUserInfo / GetUserInfo.
+//   - IOnlineExternalUI: programmatically open the EOS Social Overlay
+//     Friends list. Profile + Invite views can't be opened
+//     programmatically - the EOS UI SDK only exposes ShowFriends,
+//     ShowBlockPlayer, and ShowReportPlayer; the latter two aren't
+//     surfaced through the OSS layer at all. Profile/invite are
+//     reachable only via user navigation inside the overlay itself.
+// Sits above the session-attached presence (Tutorial 4/7's bUsesPresence
+// join-time flip), which only declares "I'm in session X" - this layer
+// adds the custom status string + the social-graph surface around it.
 // =====================================================================
 
 void AEOSPlayerController::SetGamePresence(const FString& StatusText)
@@ -2663,6 +2710,11 @@ void AEOSPlayerController::TestSetGamePresence(const FString& StatusText)
     // trigger - no auto-fire on login or join, so the EOS Social Overlay
     // surfaces the rich text the user explicitly set without races
     // against rapid back-to-back presence updates.
+    if (IsRunningDedicatedServer())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestSetGamePresence] Client-only API; ignored on server."));
+        return;
+    }
     if (StatusText.IsEmpty())
     {
         UE_LOG(LogEOSOSSTutorial, Error,
@@ -2671,4 +2723,217 @@ void AEOSPlayerController::TestSetGamePresence(const FString& StatusText)
     }
 
     SetGamePresence(StatusText);
+}
+
+void AEOSPlayerController::ReadFriendsList()
+{
+    // Tutorial 13: Async fetch of the local user's friends list. The
+    // "default" filter returns the player's full Epic friends list.
+    // Other filters (OnlinePlayers, InGamePlayers, InGameAndSessionPlayers)
+    // are also valid - see EFriendsLists in OnlineFriendsInterface.h.
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineFriendsPtr Friends = Subsystem ? Subsystem->GetFriendsInterface() : nullptr;
+    if (!Friends.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::ReadFriendsList] Friends interface null."));
+        return;
+    }
+
+    const FString DefaultList = EFriendsLists::ToString(EFriendsLists::Default);
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::ReadFriendsList] Reading list '%s'."),
+        *DefaultList);
+
+    if (!Friends->ReadFriendsList(0, DefaultList,
+            FOnReadFriendsListComplete::CreateUObject(this, &ThisClass::HandleReadFriendsListCompleted)))
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::ReadFriendsList] ReadFriendsList call failed."));
+    }
+}
+
+void AEOSPlayerController::HandleReadFriendsListCompleted(int32 LocalUserNum, bool bWasSuccessful, const FString& ListName, const FString& ErrorStr)
+{
+    // Tutorial 13: ReadFriendsList completion. On success, sync-read the
+    // populated cache via GetFriendsList and log each entry. The friend
+    // entries also expose presence and name info via FOnlineFriend's
+    // accessors (GetDisplayName, GetPresence) - useful for in-game UI.
+    if (!bWasSuccessful)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::HandleReadFriendsListCompleted] ReadFriendsList failed: %s"),
+            *ErrorStr);
+        return;
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineFriendsPtr Friends = Subsystem ? Subsystem->GetFriendsInterface() : nullptr;
+    if (!Friends.IsValid())
+    {
+        return;
+    }
+
+    TArray<TSharedRef<FOnlineFriend>> FriendsArray;
+    if (!Friends->GetFriendsList(LocalUserNum, ListName, FriendsArray))
+    {
+        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSPlayerController::HandleReadFriendsListCompleted] GetFriendsList returned false."));
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::HandleReadFriendsListCompleted] '%s' returned %d friend(s)."),
+        *ListName, FriendsArray.Num());
+
+    for (const TSharedRef<FOnlineFriend>& Friend : FriendsArray)
+    {
+        UE_LOG(LogEOSOSSTutorial, Verbose,
+            TEXT("[Friend] %s (%s) - presence: %s"),
+            *Friend->GetDisplayName(),
+            *Friend->GetUserId()->ToDebugString(),
+            *Friend->GetPresence().ToDebugString());
+    }
+}
+
+void AEOSPlayerController::HandleFriendsChange()
+{
+    // Tutorial 13: Multicast - fires when the local user's friends list
+    // membership changes (friend added, removed, accepted, etc.).
+    // Logged for visibility; real games would refresh the in-game
+    // friends list UI here.
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::HandleFriendsChange] Friends list changed."));
+}
+
+void AEOSPlayerController::QueryUserInfoFor(const FUniqueNetIdRef& Target)
+{
+    // Tutorial 13: Async fetch of user info (display name + nickname +
+    // external account info) for one or more PUIDs. Result lands in
+    // HandleQueryUserInfoCompleted.
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineUserPtr User = Subsystem ? Subsystem->GetUserInterface() : nullptr;
+    if (!User.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::QueryUserInfoFor] User interface null."));
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::QueryUserInfoFor] Querying %s."),
+        *Target->ToDebugString());
+
+    TArray<FUniqueNetIdRef> Targets;
+    Targets.Add(Target);
+    User->QueryUserInfo(0, Targets);
+}
+
+void AEOSPlayerController::HandleQueryUserInfoCompleted(int32 LocalUserNum, bool bWasSuccessful, const TArray<FUniqueNetIdRef>& UserIds, const FString& ErrorStr)
+{
+    // Tutorial 13: QueryUserInfo completion. On success, sync-read the
+    // populated cache via GetUserInfo for each target id.
+    if (!bWasSuccessful)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::HandleQueryUserInfoCompleted] QueryUserInfo failed: %s"),
+            *ErrorStr);
+        return;
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineUserPtr User = Subsystem ? Subsystem->GetUserInterface() : nullptr;
+    if (!User.IsValid())
+    {
+        return;
+    }
+
+    for (const FUniqueNetIdRef& UserId : UserIds)
+    {
+        TSharedPtr<FOnlineUser> Info = User->GetUserInfo(LocalUserNum, *UserId);
+        if (Info.IsValid())
+        {
+            UE_LOG(LogEOSOSSTutorial, Verbose,
+                TEXT("[AEOSPlayerController::HandleQueryUserInfoCompleted] %s -> DisplayName: %s"),
+                *UserId->ToDebugString(), *Info->GetDisplayName());
+        }
+        else
+        {
+            UE_LOG(LogEOSOSSTutorial, Warning,
+                TEXT("[AEOSPlayerController::HandleQueryUserInfoCompleted] %s -> no cached info."),
+                *UserId->ToDebugString());
+        }
+    }
+}
+
+void AEOSPlayerController::ShowFriendsOverlay()
+{
+    // Tutorial 13: Open the EOS Social Overlay to the Friends list view.
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineExternalUIPtr External = Subsystem ? Subsystem->GetExternalUIInterface() : nullptr;
+    if (!External.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::ShowFriendsOverlay] ExternalUI interface null."));
+        return;
+    }
+
+    if (!External->ShowFriendsUI(0))
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::ShowFriendsOverlay] ShowFriendsUI call failed."));
+    }
+}
+
+void AEOSPlayerController::TestReadFriends()
+{
+    // Tutorial 13: Console wrapper for ReadFriendsList.
+    if (IsRunningDedicatedServer())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestReadFriends] Client-only API; ignored on server."));
+        return;
+    }
+    ReadFriendsList();
+}
+
+void AEOSPlayerController::TestQueryUserInfo(const FString& TargetProductUserId)
+{
+    // Tutorial 13: Console wrapper for QueryUserInfoFor. Resolves a raw
+    // PUID into an FUniqueNetIdRef and forwards.
+    if (IsRunningDedicatedServer())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestQueryUserInfo] Client-only API; ignored on server."));
+        return;
+    }
+    if (TargetProductUserId.IsEmpty())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::TestQueryUserInfo] ProductUserId required."));
+        return;
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    if (!Identity.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestQueryUserInfo] Identity interface null."));
+        return;
+    }
+
+    const FString NetIdString = FString::Printf(TEXT("|%s"), *TargetProductUserId);
+    FUniqueNetIdPtr Target = Identity->CreateUniquePlayerId(NetIdString);
+    if (!Target.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::TestQueryUserInfo] CreateUniquePlayerId failed for '%s'."),
+            *TargetProductUserId);
+        return;
+    }
+
+    QueryUserInfoFor(Target.ToSharedRef());
+}
+
+void AEOSPlayerController::TestShowFriendsOverlay()
+{
+    // Tutorial 13: Console wrapper for ShowFriendsOverlay.
+    if (IsRunningDedicatedServer())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestShowFriendsOverlay] Client-only API; ignored on server."));
+        return;
+    }
+    ShowFriendsOverlay();
 }
