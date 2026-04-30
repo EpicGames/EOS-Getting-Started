@@ -2890,19 +2890,25 @@ void AEOSPlayerController::TestReadFriends()
     ReadFriendsList();
 }
 
-void AEOSPlayerController::TestQueryUserInfo(const FString& TargetProductUserId)
+void AEOSPlayerController::TestQueryUserInfo(const FString& TargetEpicAndPuid)
 {
-    // Tutorial 13: Console wrapper for QueryUserInfoFor. Resolves a raw
-    // PUID into an FUniqueNetIdRef and forwards.
+    // Tutorial 13: Console wrapper for QueryUserInfoFor. Takes the FULL
+    // FUniqueNetIdEOS string form "EpicAccountId|PUID" - this is the same
+    // string format printed in every Login succeeded log and in
+    // [Friend] entries from TestReadFriends. Unlike most other Test*
+    // commands which accept PUID-only (because they pass to outgoing
+    // SDK calls that only need the PUID), GetUserInfo is a cache
+    // lookup keyed by the full EpicAccountId+PUID composite - a PUID-only
+    // FUniqueNetId would query successfully but miss the cache.
     if (IsRunningDedicatedServer())
     {
         UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestQueryUserInfo] Client-only API; ignored on server."));
         return;
     }
-    if (TargetProductUserId.IsEmpty())
+    if (TargetEpicAndPuid.IsEmpty() || !TargetEpicAndPuid.Contains(TEXT("|")))
     {
         UE_LOG(LogEOSOSSTutorial, Error,
-            TEXT("[AEOSPlayerController::TestQueryUserInfo] ProductUserId required."));
+            TEXT("[AEOSPlayerController::TestQueryUserInfo] Full \"EpicAccountId|PUID\" required (e.g., copy from a [Friend] log line)."));
         return;
     }
 
@@ -2914,13 +2920,12 @@ void AEOSPlayerController::TestQueryUserInfo(const FString& TargetProductUserId)
         return;
     }
 
-    const FString NetIdString = FString::Printf(TEXT("|%s"), *TargetProductUserId);
-    FUniqueNetIdPtr Target = Identity->CreateUniquePlayerId(NetIdString);
+    FUniqueNetIdPtr Target = Identity->CreateUniquePlayerId(TargetEpicAndPuid);
     if (!Target.IsValid())
     {
         UE_LOG(LogEOSOSSTutorial, Error,
             TEXT("[AEOSPlayerController::TestQueryUserInfo] CreateUniquePlayerId failed for '%s'."),
-            *TargetProductUserId);
+            *TargetEpicAndPuid);
         return;
     }
 

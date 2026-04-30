@@ -275,9 +275,11 @@ protected:
 	//   TestReadFriends
 	//     - fetches the local user's friends list ("default" filter);
 	//       on success logs each friend's id + cached presence summary
-	//   TestQueryUserInfo <ProductUserId>
-	//     - resolves a PUID to a display name via QueryUserInfo;
-	//       result lands in HandleQueryUserInfoCompleted
+	//   TestQueryUserInfo <EpicAccountId|PUID>
+	//     - takes the FULL composite id (same format printed in every
+	//       Login succeeded log and [Friend] entries). GetUserInfo is
+	//       a cache lookup keyed by EpicAccountId+PUID, so PUID-only
+	//       wouldn't match a cached entry.
 	//   TestShowFriendsOverlay
 	//     - opens the EOS Social Overlay to the Friends list view.
 	//       Profile/invite overlay views are user-navigated only -
@@ -318,7 +320,7 @@ protected:
 	void TestReadFriends();
 
 	UFUNCTION(Exec)
-	void TestQueryUserInfo(const FString& TargetProductUserId);
+	void TestQueryUserInfo(const FString& TargetEpicAndPuid);
 
 	UFUNCTION(Exec)
 	void TestShowFriendsOverlay();
