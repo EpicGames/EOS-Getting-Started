@@ -75,7 +75,7 @@ protected:
 	// Delegate to bind callback event for unregister player. 
 	FDelegateHandle UnregisterPlayerDelegateHandle;
 
-	// Tutorial 3: Server-driven session attribute update. Real games change
+	// Tutorial 5: Server-driven session attribute update. Real games change
 	// session-level attributes in response to gameplay events (player join,
 	// match start, round end, etc.) - never via client RPC, since clients
 	// don't have authority over server-owned sessions. Demonstrated here:
@@ -124,11 +124,11 @@ protected:
 	class AEOSPlayerController* FindPlayerControllerByNetId(const FUniqueNetIdRef& PlayerId) const;
 
 #if ACMODE
-	// Tutorial 9: Bound to IEOSAntiCheat::OnViolation. Kicks via AGameSession::KickPlayer.
+	// Tutorial 10: Bound to IEOSAntiCheat::OnViolation. Kicks via AGameSession::KickPlayer.
 	// PlayerId null = PEER_SELF (P2P only); never reaches server-mode.
 	void HandleAntiCheatViolation(const FUniqueNetIdPtr& PlayerId, const FString& Reason);
 
-	// Tutorial 9: Bound to IEOSAntiCheatServer::OnMessageToClient. Forwards the opaque bytes
+	// Tutorial 10: Bound to IEOSAntiCheatServer::OnMessageToClient. Forwards the opaque bytes
 	// to the owning AEOSPlayerController via its Client_AntiCheatMessage reliable RPC.
 	void HandleAntiCheatMessageToClient(const FUniqueNetIdRef& PlayerId, const TArray<uint8>& Bytes);
 
@@ -136,7 +136,7 @@ protected:
 	FDelegateHandle AntiCheatMessageToClientDelegateHandle;
 
 public:
-	// Tutorial 9: Called from AEOSPlayerController's Server_NotifyAntiCheatReady RPC once the
+	// Tutorial 10: Called from AEOSPlayerController's Server_NotifyAntiCheatReady RPC once the
 	// client has finished loading. Registers the player with the AntiCheat server at that point
 	// (not before - see the IEOSAntiCheatServer::RegisterClient comment for the heartbeat
 	// timeout that kicks in if we register while the client is still blocked).

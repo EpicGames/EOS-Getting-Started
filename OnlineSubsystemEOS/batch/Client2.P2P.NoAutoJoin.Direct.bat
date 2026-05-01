@@ -1,5 +1,5 @@
 @echo off
-REM Tutorials 4 + 7: Second-client P2P Direct launch with -NoAutoJoin.
+REM Tutorials 4 + 5: Second-client P2P Direct launch with -NoAutoJoin.
 REM
 REM Default P2P client behavior: client A creates the lobby, client B's
 REM HandleFindSessionsCompleted finds it and auto-joins. That races

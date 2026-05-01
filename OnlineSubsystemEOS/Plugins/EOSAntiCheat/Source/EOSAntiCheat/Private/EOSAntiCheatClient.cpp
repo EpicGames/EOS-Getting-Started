@@ -14,8 +14,10 @@
 #include "eos_p2p_types.h"
 #include "Containers/Ticker.h"
 
-// Full-mesh PeerToPeer AC on a dedicated "EOSAntiCheat" EOS P2P socket -
-// kept off NetDriverEOS's "GameNetDriver" socket. Raw EOS_P2P_* because
+// EAC PeerToPeer mode - every peer exchanges AC handshake messages with every other
+// peer over a dedicated "EOSAntiCheat" EOS P2P socket, kept off NetDriverEOS's
+// "GameNetDriver" socket. ("Full-mesh" describes EAC's peer-auth channel here, NOT
+// UE replication - the UE topology is listen-server-over-P2P.) Raw EOS_P2P_* because
 // FSocketEOS's SetSocketName / SetLocalAddress aren't exported in 5.8.
 // ReceivePacket MUST filter on our channel hash or it steals NetDriverEOS
 // packets and breaks travel. Channel hash matches FSocketEOS's channel-

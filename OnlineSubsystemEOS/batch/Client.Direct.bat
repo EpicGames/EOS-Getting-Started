@@ -1,5 +1,5 @@
 @echo off
-REM Tutorial 9: Launch a packaged client DIRECTLY, bypassing the EAC bootstrapper.
+REM Tutorial 10: Launch a packaged client DIRECTLY, bypassing the EAC bootstrapper.
 REM
 REM Intentionally unprotected - useful for:
 REM   - Confirming the server kicks unprotected clients (expected: kick after

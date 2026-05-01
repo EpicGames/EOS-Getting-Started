@@ -1,5 +1,5 @@
 @echo off
-REM Tutorial 9 (P2P mesh): Launch a packaged P2P client DIRECTLY, bypassing
+REM Tutorial 10 (P2P listen-server): Launch a packaged P2P client DIRECTLY, bypassing
 REM the EAC bootstrapper. Intentionally unprotected - useful for:
 REM   - Confirming a protected peer kicks this one via OnPeerActionRequired
 REM     (expected: kick after AuthenticationTimeout seconds, configurable via

@@ -1,5 +1,5 @@
 @echo off
-REM Tutorial 9: Third client instance - same as Client.Protected.bat, provided
+REM Tutorial 10: Third client instance - same as Client.Protected.bat, provided
 REM as a distinct file so each learner can fill in a different AUTH_PASSWORD
 REM per client without duplicating by hand. Useful for the 3-client server-
 REM mode regression test (host + 2 protected clients against a packaged server).

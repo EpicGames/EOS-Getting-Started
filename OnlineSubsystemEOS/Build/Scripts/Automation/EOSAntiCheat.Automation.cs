@@ -105,6 +105,35 @@ After this completes, launch the game via <stagedDir>/start_protected_game.exe.
 				throw new AutomationException("Inner game binary not found at {0}. Confirm -PackageDir / -GameExe or repackage.", InnerGameExeAbs);
 			}
 
+			// Detect a stale archived binary: BuildCookRun -archive copies the staged binary at
+			// Saved/StagedBuilds/Windows/<Project>/Binaries/Win64/<Project>.exe to its mirror
+			// in <PackageDir>. If a packaged client (or the start_protected_game.exe wrapping
+			// it) is still running, Windows file-locks the destination and the copy silently
+			// no-ops while UAT logs BUILD SUCCESSFUL. Hashing the stale binary into the
+			// integrity catalog produces a package that boots and passes EAC integrity but
+			// runs the old code - we hit this in a P2P+ACMODE test session and lost ~30
+			// minutes chasing a "fix" that wasn't actually packaged. If the archive looks
+			// stale relative to the stage, abort with a clear message.
+			string StagedBinaryPath = Path.Combine(
+				ProjectDir, "Saved", "StagedBuilds", "Windows",
+				ProjectName, "Binaries", "Win64", GameExe);
+			if (File.Exists(StagedBinaryPath))
+			{
+				DateTime StagedTime = File.GetLastWriteTimeUtc(StagedBinaryPath);
+				DateTime ArchivedTime = File.GetLastWriteTimeUtc(InnerGameExeAbs);
+				TimeSpan Skew = StagedTime - ArchivedTime;
+				if (Skew > TimeSpan.FromSeconds(5))
+				{
+					throw new AutomationException(
+						"Archived binary at {0} is older than staged binary at {1} by {2:0.#}s. "
+					  + "BuildCookRun -archive likely failed to overwrite the destination because "
+					  + "a packaged client (or start_protected_game.exe) was still running when "
+					  + "the archive ran - Windows file-locks the .exe and the copy silently no-ops. "
+					  + "Close every running packaged client, re-run BuildCookRun, then retry.",
+						InnerGameExeAbs, StagedBinaryPath, Skew.TotalSeconds);
+				}
+			}
+
 			// EAC runtime + bootstrapper land at the PACKAGE ROOT so that the integrity
 			// tool's -target_game_dir can walk the entire staged tree (Engine/ and project
 			// content both) in one pass. Catalog scope == "game root", as EAC expects.

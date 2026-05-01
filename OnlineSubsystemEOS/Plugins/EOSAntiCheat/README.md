@@ -24,7 +24,7 @@ This plugin supports two topologies, matching the tutorial project's
   `NetDriverEOS` passes through to `IpNetDriver` and the actual transport
   is plain IP. Server flags via `OnClientActionRequired` and kicks via
   `AGameSession::KickPlayer`.
-- `P2PMODE=1` — **P2P mesh.** EAC Client only, in `PeerToPeer` mode.
+- `P2PMODE=1` — **P2P listen-server.** EAC Client only, in `PeerToPeer` mode.
   Every participant registers every other participant as a peer via the
   OSS lobby-participant events; the plugin owns a dedicated EOS P2P
   socket (`EOSAntiCheat`) for AC message transport, separate from the
@@ -39,15 +39,21 @@ is duplicated in `EOSAntiCheat.Build.cs` — keep it in sync with
 
 The project's `ACMODE` build flag (default `0`, in
 `EOS_OSS_Tutorial.Build.cs`) lets learners disable every anti-cheat
-call site while keeping the plugin compiled, so Tutorials 4–8 can be
-exercised without setting up the EAC bootstrapper or integrity tool.
-Tutorial 9's setup section walks the reader through flipping
-`ACMODE=1` for the AC-specific exercises. The `ProtectEOSPackage` UAT
+call site while keeping the plugin compiled, so Tutorials 1–9 and 11
+(everything except this anti-cheat module) can be exercised without
+setting up the EAC bootstrapper or integrity tool. Tutorial 10's
+setup section walks the reader through flipping `ACMODE=1` for the
+AC-specific exercises. The `ProtectEOSPackage` UAT
 command refuses to run on `ACMODE=0` builds (silent misconfiguration
 risk), and the plain `BuildCookRun` output is itself a shippable
 artifact in that mode.
 
-Listen-server is not a supported deployment target.
+Note that "listen-server" here refers to the UE replication topology
+(`NM_ListenServer`); the EAC mode running on top of it is `PeerToPeer`,
+because no participant is a dedicated EAC Server. An alternative the
+tutorial doesn't take is to run the listen-server host *also* as an EAC
+Server — that's a valid EAC SDK deployment, just one this project's
+design choice doesn't exercise.
 
 ## One-time setup
 
@@ -79,7 +85,7 @@ Listen-server is not a supported deployment target.
 ## Packaging flow
 
 Two UAT commands. Both are RunUAT-native - no shell scripting outside the
-UE toolchain. The pipeline is identical for server-mode and P2P-mesh
+UE toolchain. The pipeline is identical for server-mode and P2P listen-server
 builds; only the `-Artifact` argument in Step 2 differs.
 
 ### Step 1: package the game
@@ -95,10 +101,16 @@ line:
     -archivedirectory=<FullPathTo>\Packaged
 ```
 
-During `-stage`, `EOSAntiCheat.Build.cs` automatically copies
-`start_protected_game.exe` and the `EasyAntiCheat/` runtime folder into
-the package root via `RuntimeDependencies`. No manual file copy
-required.
+`BuildCookRun` produces the staged package but does **not** drop
+`start_protected_game.exe` or the `EasyAntiCheat/` runtime folder into
+it. Those bootstrapper files have to live at the package **root**
+(the integrity tool's `-target_game_dir`), and UE's `RuntimeDependencies`
+path variables don't resolve to the package root — only to
+`Binaries/Win64`. So the file placement is deferred to the post-stage
+UAT command in Step 2 (`ProtectEOSPackage`), which copies the
+bootstrapper + EAC runtime into the package root via explicit
+`File.Copy`. See the comment block in `EOSAntiCheat.Build.cs` for the
+matching note.
 
 ### Step 2: protect the package
 
@@ -113,7 +125,7 @@ Run the plugin's custom UAT command:
     -PackageDir=<FullPathTo>\Packaged\WindowsClient
 ```
 
-**P2P-mesh build (`P2PMODE=1`) — pass `-Artifact=P2PClient`:**
+**P2P listen-server build (`P2PMODE=1`) — pass `-Artifact=P2PClient`:**
 
 ```bat
 <Engine>\Engine\Build\BatchFiles\RunUAT.bat ProtectEOSPackage ^
@@ -133,7 +145,7 @@ The command:
    project's `Config/DefaultEngine.ini`. The committed file ships with
    blank artifact stubs — fill in your `ProductId` / `SandboxId` /
    `DeploymentId` / `ClientId` / `ClientSecret` from the EOS Dev Portal
-   before running this step (same credentials Tutorial 1 walks through).
+   before running this step (same credentials Tutorial 0 walks through).
 2. Writes `<PackageDir>/EasyAntiCheat/Settings.json` with the resolved
    ProductId / SandboxId / DeploymentId and the game exe name.
 3. Invokes `Plugins/EOSAntiCheat/Tools/devtools/anticheat_integritytool.exe`
@@ -146,7 +158,7 @@ Command-line overrides:
 | Flag | Default | Purpose |
 |---|---|---|
 | `-GameExe=<file.exe>` | `<uproject stem>.exe` | Name of the packaged game binary at the package root |
-| `-Artifact=<name>` | `Client` | Which DefaultEngine.ini artifact to read IDs from. Use `P2PClient` for P2P-mesh builds. |
+| `-Artifact=<name>` | `Client` | Which DefaultEngine.ini artifact to read IDs from. Use `P2PClient` for P2P listen-server builds. |
 | `-IntegrityLabel=<label>` | `base_public` | Dev Portal label for the uploaded manifest |
 
 Re-run Step 2 whenever you repackage (the manifest is tied to the
@@ -163,7 +175,7 @@ see `batch/README.md`. Quick reference:
 - Server-mode dedicated server: `batch/Server.Packaged.bat` (servers
   never launch through the bootstrapper - EAC server API is
   trusted-process-only).
-- P2P-mesh client: `batch/Client.P2P.Protected.bat` (through the
+- P2P listen-server client: `batch/Client.P2P.Protected.bat` (through the
   bootstrapper, `-epicapp="P2PClient"`) or `batch/Client.P2P.Direct.bat`
   (unprotected, expected kick by protected peers).
 

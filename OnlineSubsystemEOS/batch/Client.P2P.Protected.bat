@@ -1,5 +1,5 @@
 @echo off
-REM Tutorial 9 (P2P mesh): Launch a packaged P2P client through the EAC bootstrapper.
+REM Tutorial 10 (P2P listen-server): Launch a packaged P2P client through the EAC bootstrapper.
 REM
 REM Same pipeline as the server-mode Client.Protected.bat (package via
 REM BuildCookRun, sign via ProtectEOSPackage, launch via start_protected_game.exe),

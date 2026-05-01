@@ -3,7 +3,7 @@
 using UnrealBuildTool;
 using System.Collections.Generic;
 
-// Tutorial 9: Dedicated-server target. Built and packaged separately from the
+// Tutorial 10: Dedicated-server target. Built and packaged separately from the
 // Game target so the anti-cheat server interface compiles in (WITH_EDITOR=0)
 // and BeginSession / RegisterClient / kick callbacks actually run. The editor
 // Server.local.bat launch (UnrealEditor.exe -server) still works for day-to-day

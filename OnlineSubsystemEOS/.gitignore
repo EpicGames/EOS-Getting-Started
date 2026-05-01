@@ -27,3 +27,7 @@ batch/local/
 # UE convention: Restricted/NoRedist, Restricted/NotForLicensees, Restricted/LimitedAccess
 # contain files the engine auto-layers on top of committed configs but that must never ship.
 Restricted/
+# EngineBugs.md is for internal handoff to engine-side fixes; do NOT publish.
+# This is a public tutorial repo - the file references local engine paths and
+# may contain in-progress engine bug write-ups that aren't ready for upstream.
+EngineBugs.md

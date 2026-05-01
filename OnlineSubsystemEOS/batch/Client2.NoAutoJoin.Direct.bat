@@ -1,5 +1,5 @@
 @echo off
-REM Tutorials 4 + 7: Second-client Direct launch with -NoAutoJoin.
+REM Tutorials 4 + 5: Second-client Direct launch with -NoAutoJoin.
 REM
 REM The default post-login chain (HandleLoginCompleted -> GetSanctions ->
 REM FindSessions -> JoinSession) auto-joins any matching session as soon

@@ -87,6 +87,24 @@ void AEOSPlayerState::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
+// =====================================================================
+// Tutorial 2: Achievements, stats, and leaderboards.
+//
+// Three OSS interfaces, all stat-driven:
+//   - IOnlineStats::UpdateStats: client posts stat deltas to the EOS
+//     backend (e.g. JumpCount++). The EOS achievement system listens
+//     to stat thresholds and unlocks achievements automatically once
+//     thresholds are crossed - no separate UnlockAchievement call.
+//   - IOnlineLeaderboards::ReadLeaderboardsAroundRank: global leaderboard
+//     query, returns top-N or around-local-rank rows.
+//   - IOnlineLeaderboards::ReadLeaderboards (with friend NetId list):
+//     friend-scoped leaderboard. The two-step ReadFriendsList -> build
+//     id array -> ReadLeaderboards flow works around an OSS-EOS crash
+//     in 5.8 ReadLeaderboardsForFriends (see EngineBugs.md item 5).
+// Mode-agnostic. Stats post from UpdateStat (called by gameplay), the
+// leaderboard queries surface via TestQueryLeaderboard* exec commands.
+// =====================================================================
+
 void AEOSPlayerState::UpdateStat(FString StatName, int32 StatValue)
 {
 	// This function will add a StatValue to the StatName on the EOS backend.

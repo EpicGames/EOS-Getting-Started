@@ -1,8 +1,8 @@
 # Launch scripts
 
 `.bat` templates for running the tutorial — editor-launch scripts used
-by Tutorials 2-7, and the packaged-build / Anti-Cheat launch scripts
-added in Tutorial 9. Originally scattered across the project root; all
+by Tutorials 1-7, and the packaged-build / Anti-Cheat launch scripts
+added in Tutorial 10. Originally scattered across the project root; all
 now live here.
 
 ## Layout
@@ -18,7 +18,7 @@ credentials, run the local copy.
 
 ## Files in this folder
 
-### Editor-launch (Tutorials 2-7, both modes)
+### Editor-launch (Tutorials 1-7, both modes)
 
 | File | Purpose |
 |---|---|
@@ -28,7 +28,7 @@ credentials, run the local copy.
 
 These use `UnrealEditor.exe <uproject> ...` and target the in-editor
 build, so Anti-Cheat is compiled out (`#if !WITH_EDITOR`). For the full
-Tutorial 9 flow use the packaged-build scripts below.
+Tutorial 10 flow use the packaged-build scripts below.
 
 ### Server mode (`P2PMODE=0`)
 
@@ -40,7 +40,7 @@ Tutorial 9 flow use the packaged-build scripts below.
 | `Client.Direct.bat` | Run the packaged client **without** the bootstrapper. Expected: server kicks this client after the auth timeout. |
 | `Client2.Direct.bat` | Same, for the second client. |
 
-### P2P mesh mode (`P2PMODE=1`)
+### P2P listen-server mode (`P2PMODE=1`)
 
 | File | Purpose |
 |---|---|
@@ -51,8 +51,8 @@ Tutorial 9 flow use the packaged-build scripts below.
 | `Client2.P2P.Direct.bat` | Same, second unprotected peer. |
 | `Client3.P2P.Direct.bat` | Same, third unprotected peer. |
 
-No dedicated server exists in P2P mesh mode (by project design — this
-tutorial supports dedicated server OR P2P mesh, not listen-server).
+No dedicated server exists in P2P listen-server mode (by project design — this
+tutorial supports dedicated server OR P2P listen-server, not listen-server).
 
 ## Packaging pipeline (both modes)
 

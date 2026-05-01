@@ -1,5 +1,5 @@
 @echo off
-REM Tutorial 9 (P2P mesh): Third packaged P2P client, launched through the EAC
+REM Tutorial 10 (P2P listen-server): Third packaged P2P client, launched through the EAC
 REM bootstrapper. Use a different DevAuthTool credential than Client.P2P.Protected.bat
 REM and Client2.P2P.Protected.bat so this client logs in as a distinct EOS user.
 REM See Client.P2P.Protected.bat's header for the full flow.

@@ -48,7 +48,7 @@ private:
 	FOnMessageToServer MessageToServerDelegate;
 
 #if P2PMODE
-	// P2P mesh state. Raw EOS_P2P_* (FSocketEOS's SetSocketName /
+	// P2P listen-server state. Raw EOS_P2P_* (FSocketEOS's SetSocketName /
 	// SetLocalAddress aren't exported in 5.8). SDK reuses shared callback types.
 	static void EOS_CALL OnMessageToPeerStatic(const EOS_AntiCheatCommon_OnMessageToClientCallbackInfo* Data);
 	static void EOS_CALL OnPeerActionRequiredStatic(const EOS_AntiCheatCommon_OnClientActionRequiredCallbackInfo* Data);

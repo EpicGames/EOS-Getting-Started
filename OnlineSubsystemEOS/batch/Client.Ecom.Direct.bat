@@ -1,5 +1,5 @@
 @echo off
-REM Tutorial 10: Launch a packaged client DIRECTLY against the EcomClient artifact
+REM Tutorial 3: Launch a packaged client DIRECTLY against the EcomClient artifact
 REM (different Dev Portal product configured for Game Catalog). Bypasses the EAC
 REM bootstrapper since ecom flows don't require AC protection - faster iteration
 REM during ecom development.

@@ -86,7 +86,7 @@ void AEOS_OSS_TutorialCharacter::SetupPlayerInputComponent(class UInputComponent
 		//Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AEOS_OSS_TutorialCharacter::Look);
 
-		// Tutorial 7 - setting up inputs for ending the game and saving to Player Data Storage. Exit Game.
+		// Tutorial 4 - setting up inputs for ending the game and saving to Player Data Storage. Exit Game.
 		// Bind to Started (not Triggered) so Quit fires exactly once on key-down; a Boolean action with no
 		// explicit trigger reports Triggered every frame while held, which would kick off multiple concurrent
 		// WriteUserFile calls and make Player Data Storage reject all but the first.

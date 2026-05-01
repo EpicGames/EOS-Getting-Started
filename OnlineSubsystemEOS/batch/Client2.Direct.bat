@@ -1,5 +1,5 @@
 @echo off
-REM Tutorial 9: Direct (bootstrapper-bypass) launch for the second client.
+REM Tutorial 10: Direct (bootstrapper-bypass) launch for the second client.
 REM See Client.Direct.bat for the kick-test rationale.
 
 cd /d "<Path to packaged Client Binaries\Win64 dir>"
