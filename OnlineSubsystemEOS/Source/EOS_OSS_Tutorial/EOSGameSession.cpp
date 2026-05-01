@@ -232,6 +232,13 @@ void AEOSGameSession::CreateSession(FName KeyName, FString KeyValue) // Dedicate
         // This custom attribute will be used in searches on GameClients.
         SessionSettings->Settings.Add(KeyName, FOnlineSessionSetting((KeyValue), EOnlineDataAdvertisementType::ViaOnlineService));
 
+        // Tutorial 3: Initial Phase attribute. Flipped to "InProgress" on
+        // the first player join in HandleRegisterPlayerCompleted - shows
+        // how the server changes session state in response to gameplay
+        // events (no client RPC; the server is the authority).
+        SessionSettings->Settings.Add(FName(TEXT("Phase")),
+            FOnlineSessionSetting(FString(TEXT("Lobby")), EOnlineDataAdvertisementType::ViaOnlineService));
+
 #if !P2PMODE
         // Tutorial 8: EOS RTC room name for this match. Delivered to clients with their voice credentials.
         VoiceRoomName = SessionName.ToString() + TEXT("_Voice");
@@ -328,6 +335,39 @@ void AEOSGameSession::HandleRegisterPlayerCompleted(FName EOSSessionName, const 
             }
         }
 #endif
+
+        // Tutorial 3: Flip the Phase attribute on the 0->1 transition.
+        // Demonstrates server-side session-attribute update in response
+        // to a real gameplay event (first player join). Other natural
+        // triggers in a real game: round start, score milestones, time
+        // expiry. Never client-driven - the server has authority.
+        if (NumberOfPlayersInSession == 1)
+        {
+            IOnlineSubsystem* UpdateSubsystem = Online::GetSubsystem(GetWorld());
+            IOnlineSessionPtr UpdateSessionInterface = UpdateSubsystem ? UpdateSubsystem->GetSessionInterface() : nullptr;
+            if (UpdateSessionInterface.IsValid())
+            {
+                if (FNamedOnlineSession* Named = UpdateSessionInterface->GetNamedSession(SessionName))
+                {
+                    FOnlineSessionSettings UpdatedSettings = Named->SessionSettings;
+                    UpdatedSettings.Set(FName(TEXT("Phase")), FString(TEXT("InProgress")), EOnlineDataAdvertisementType::ViaOnlineService);
+
+                    UpdateSessionDelegateHandle =
+                        UpdateSessionInterface->AddOnUpdateSessionCompleteDelegate_Handle(
+                            FOnUpdateSessionCompleteDelegate::CreateUObject(this, &ThisClass::HandleUpdateSessionCompleted));
+
+                    UE_LOG(LogEOSOSSTutorial, Verbose,
+                        TEXT("[AEOSGameSession::HandleRegisterPlayerCompleted] First player joined - flipping Phase to InProgress."));
+
+                    if (!UpdateSessionInterface->UpdateSession(SessionName, UpdatedSettings, /*bShouldRefreshOnlineData=*/true))
+                    {
+                        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::HandleRegisterPlayerCompleted] UpdateSession call failed."));
+                        UpdateSessionInterface->ClearOnUpdateSessionCompleteDelegate_Handle(UpdateSessionDelegateHandle);
+                        UpdateSessionDelegateHandle.Reset();
+                    }
+                }
+            }
+        }
 
         if (NumberOfPlayersInSession == MaxNumberOfPlayersInSession)
         {
@@ -436,6 +476,34 @@ void AEOSGameSession::StartSession()
     else
     {
         UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::StartSession] Session interface null"));
+    }
+}
+
+void AEOSGameSession::HandleUpdateSessionCompleted(FName EOSSessionName, bool bWasSuccessful)
+{
+    // Tutorial 3: UpdateSession completion. Bound per-call from server-side
+    // attribute updates (currently the Phase=InProgress flip on first
+    // player join). Real games would chain in further state-driven
+    // updates from the same handler.
+    if (bWasSuccessful)
+    {
+        UE_LOG(LogEOSOSSTutorial, Verbose,
+            TEXT("[AEOSGameSession::HandleUpdateSessionCompleted] UpdateSession succeeded for '%s'."),
+            *EOSSessionName.ToString());
+    }
+    else
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSGameSession::HandleUpdateSessionCompleted] UpdateSession failed for '%s'."),
+            *EOSSessionName.ToString());
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+    if (Session.IsValid() && UpdateSessionDelegateHandle.IsValid())
+    {
+        Session->ClearOnUpdateSessionCompleteDelegate_Handle(UpdateSessionDelegateHandle);
+        UpdateSessionDelegateHandle.Reset();
     }
 }
 

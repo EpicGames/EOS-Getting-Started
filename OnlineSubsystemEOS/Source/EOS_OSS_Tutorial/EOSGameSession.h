@@ -75,8 +75,17 @@ protected:
 	// Delegate to bind callback event for unregister player. 
 	FDelegateHandle UnregisterPlayerDelegateHandle;
 
-	// Function to start EOS Session. 
-	void StartSession(); 
+	// Tutorial 3: Server-driven session attribute update. Real games change
+	// session-level attributes in response to gameplay events (player join,
+	// match start, round end, etc.) - never via client RPC, since clients
+	// don't have authority over server-owned sessions. Demonstrated here:
+	// Phase=Lobby at create time, flipped to Phase=InProgress on first
+	// player join (HandleRegisterPlayerCompleted).
+	void HandleUpdateSessionCompleted(FName SessionName, bool bWasSuccessful);
+	FDelegateHandle UpdateSessionDelegateHandle;
+
+	// Function to start EOS Session.
+	void StartSession();
 
 	// Callback function. This function will run when start session compeletes.
 	void HandleStartSessionCompleted(FName SessionName, bool bWasSuccessful); 

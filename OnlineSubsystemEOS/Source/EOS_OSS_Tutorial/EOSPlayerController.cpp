@@ -176,6 +176,12 @@ void AEOSPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
         {
             Identity->ClearOnLoginCompleteDelegate_Handle(0, LoginDelegateHandle);
             LoginDelegateHandle.Reset();
+            // Tutorial 2: Logout delegate handle (defensive clear).
+            if (LogoutDelegateHandle.IsValid())
+            {
+                Identity->ClearOnLogoutCompleteDelegate_Handle(0, LogoutDelegateHandle);
+                LogoutDelegateHandle.Reset();
+            }
         }
 
         IOnlineSessionPtr Session = Subsystem->GetSessionInterface();
@@ -185,6 +191,13 @@ void AEOSPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
             FindSessionsDelegateHandle.Reset();
             Session->ClearOnJoinSessionCompleteDelegate_Handle(JoinSessionDelegateHandle);
             JoinSessionDelegateHandle.Reset();
+            // Tutorial 3 + 4 + 7: UpdateSession completion (per-call bind;
+            // defensive clear here in case a call was in flight).
+            if (UpdateSessionDelegateHandle.IsValid())
+            {
+                Session->ClearOnUpdateSessionCompleteDelegate_Handle(UpdateSessionDelegateHandle);
+                UpdateSessionDelegateHandle.Reset();
+            }
             // Tutorial 4 + 7: Invite delegates bound in BeginPlay (client-only).
             if (SessionInviteAcceptedDelegateHandle.IsValid())
             {
@@ -446,6 +459,62 @@ void AEOSPlayerController::HandleLoginCompleted(int32 LocalUserNum, bool bWasSuc
     {
         Identity->ClearOnLoginCompleteDelegate_Handle(LocalUserNum, LoginDelegateHandle);
         LoginDelegateHandle.Reset();
+    }
+}
+
+void AEOSPlayerController::Logout()
+{
+    // Tutorial 2: Sign the local user out of EOS Game Services. Async,
+    // mirrors Login. Real games typically call this from a sign-out
+    // UI button or as part of app shutdown rather than relying on
+    // process termination.
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    if (!Identity.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Logout] Identity interface null."));
+        return;
+    }
+
+    LogoutDelegateHandle =
+        Identity->AddOnLogoutCompleteDelegate_Handle(0,
+            FOnLogoutCompleteDelegate::CreateUObject(this, &ThisClass::HandleLogoutCompleted));
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::Logout] Logging out."));
+
+    if (!Identity->Logout(0))
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Logout] Logout call failed."));
+        Identity->ClearOnLogoutCompleteDelegate_Handle(0, LogoutDelegateHandle);
+        LogoutDelegateHandle.Reset();
+    }
+}
+
+void AEOSPlayerController::HandleLogoutCompleted(int32 LocalUserNum, bool bWasSuccessful)
+{
+    // Tutorial 2: Logout completion. After this returns, GetLoginStatus(0)
+    // is NotLoggedIn and any subsequent OSS calls that require auth
+    // will fail. A real game would route the player back to a login
+    // screen here.
+    if (bWasSuccessful)
+    {
+        UE_LOG(LogEOSOSSTutorial, Verbose,
+            TEXT("[AEOSPlayerController::HandleLogoutCompleted] Logout succeeded for local user %d."),
+            LocalUserNum);
+    }
+    else
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::HandleLogoutCompleted] Logout failed for local user %d."),
+            LocalUserNum);
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    if (Identity.IsValid())
+    {
+        Identity->ClearOnLogoutCompleteDelegate_Handle(LocalUserNum, LogoutDelegateHandle);
+        LogoutDelegateHandle.Reset();
     }
 }
 
@@ -2826,4 +2895,171 @@ void AEOSPlayerController::TestShowFriendsOverlay()
         return;
     }
     ShowFriendsOverlay();
+}
+
+void AEOSPlayerController::TestLogout()
+{
+    // Tutorial 2: Console wrapper for Logout. Client-only - server has
+    // no local user.
+    if (IsRunningDedicatedServer())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestLogout] Client-only API; ignored on server."));
+        return;
+    }
+    Logout();
+}
+
+// =====================================================================
+// Tutorial 7: P2P lobby attribute + member-attribute updates via
+// IOnlineSession::UpdateSession. Two paths:
+//   - Lobby Settings: the lobby host owns. Joiners calling
+//     TestSetLobbyAttribute will get an OSS error.
+//   - MemberSettings: any member can update their own per-member
+//     attribute via TestSetMyMemberAttribute.
+// Server-mode session attributes are NOT exposed via Exec - the
+// dedicated server has no console, and a client RPC for this isn't
+// representative of real games. Instead, see AEOSGameSession's
+// Phase=Lobby/InProgress flow: server-driven update on first player
+// join (Tutorial 3).
+// =====================================================================
+
+void AEOSPlayerController::HandleUpdateSessionCompleted(FName SessionName, bool bWasSuccessful)
+{
+    // Tutorial 3 + 4 + 7: Shared completion handler for all UpdateSession
+    // calls. Bound per-call by the path that initiated the update.
+    if (bWasSuccessful)
+    {
+        UE_LOG(LogEOSOSSTutorial, Verbose,
+            TEXT("[AEOSPlayerController::HandleUpdateSessionCompleted] UpdateSession succeeded for '%s'."),
+            *SessionName.ToString());
+    }
+    else
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::HandleUpdateSessionCompleted] UpdateSession failed for '%s'."),
+            *SessionName.ToString());
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+    if (Session.IsValid() && UpdateSessionDelegateHandle.IsValid())
+    {
+        Session->ClearOnUpdateSessionCompleteDelegate_Handle(UpdateSessionDelegateHandle);
+        UpdateSessionDelegateHandle.Reset();
+    }
+}
+
+void AEOSPlayerController::TestSetLobbyAttribute(const FString& Key, const FString& Value)
+{
+    // Tutorial 7: P2P lobby attribute update. Host runs UpdateSession on
+    // the lobby's overall Settings map; joiners calling this get an
+    // OSS error since they don't own the lobby.
+#if !P2PMODE
+    UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestSetLobbyAttribute] P2P only. In server mode, use TestSetSessionAttribute."));
+    return;
+#else
+    if (IsRunningDedicatedServer())
+    {
+        return;
+    }
+    if (Key.IsEmpty() || Value.IsEmpty())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestSetLobbyAttribute] Both Key and Value required."));
+        return;
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+    if (!Session.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestSetLobbyAttribute] Session interface null."));
+        return;
+    }
+
+    FNamedOnlineSession* Named = Session->GetNamedSession(LobbyName);
+    if (!Named)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::TestSetLobbyAttribute] No active lobby '%s'."),
+            *LobbyName.ToString());
+        return;
+    }
+
+    FOnlineSessionSettings UpdatedSettings = Named->SessionSettings;
+    UpdatedSettings.Set(FName(*Key), Value, EOnlineDataAdvertisementType::ViaOnlineService);
+
+    UpdateSessionDelegateHandle =
+        Session->AddOnUpdateSessionCompleteDelegate_Handle(
+            FOnUpdateSessionCompleteDelegate::CreateUObject(this, &ThisClass::HandleUpdateSessionCompleted));
+
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::TestSetLobbyAttribute] Updating '%s': %s = %s"),
+        *LobbyName.ToString(), *Key, *Value);
+
+    if (!Session->UpdateSession(LobbyName, UpdatedSettings, /*bShouldRefreshOnlineData=*/true))
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestSetLobbyAttribute] UpdateSession call failed (are you the host?)."));
+        Session->ClearOnUpdateSessionCompleteDelegate_Handle(UpdateSessionDelegateHandle);
+        UpdateSessionDelegateHandle.Reset();
+    }
+#endif
+}
+
+void AEOSPlayerController::TestSetMyMemberAttribute(const FString& Key, const FString& Value)
+{
+    // Tutorial 7: P2P lobby per-member attribute update. Each member
+    // can update their OWN MemberSettings entry. Used for team /
+    // ready-state / class selection that other members can read.
+#if !P2PMODE
+    UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestSetMyMemberAttribute] P2P only. Server-mode sessions don't have MemberSettings."));
+    return;
+#else
+    if (IsRunningDedicatedServer())
+    {
+        return;
+    }
+    if (Key.IsEmpty() || Value.IsEmpty())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestSetMyMemberAttribute] Both Key and Value required."));
+        return;
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+    IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+    FUniqueNetIdPtr LocalNetId = Identity.IsValid() ? Identity->GetUniquePlayerId(0) : nullptr;
+    if (!Session.IsValid() || !LocalNetId.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestSetMyMemberAttribute] Session/Identity unavailable."));
+        return;
+    }
+
+    FNamedOnlineSession* Named = Session->GetNamedSession(LobbyName);
+    if (!Named)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSPlayerController::TestSetMyMemberAttribute] No active lobby '%s'."),
+            *LobbyName.ToString());
+        return;
+    }
+
+    FOnlineSessionSettings UpdatedSettings = Named->SessionSettings;
+    FSessionSettings& LocalMemberSettings = UpdatedSettings.MemberSettings.FindOrAdd(LocalNetId.ToSharedRef());
+    LocalMemberSettings.Add(FName(*Key), FOnlineSessionSetting(Value, EOnlineDataAdvertisementType::ViaOnlineService));
+
+    UpdateSessionDelegateHandle =
+        Session->AddOnUpdateSessionCompleteDelegate_Handle(
+            FOnUpdateSessionCompleteDelegate::CreateUObject(this, &ThisClass::HandleUpdateSessionCompleted));
+
+    UE_LOG(LogEOSOSSTutorial, Verbose,
+        TEXT("[AEOSPlayerController::TestSetMyMemberAttribute] Updating my MemberSettings in '%s': %s = %s"),
+        *LobbyName.ToString(), *Key, *Value);
+
+    if (!Session->UpdateSession(LobbyName, UpdatedSettings, /*bShouldRefreshOnlineData=*/true))
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::TestSetMyMemberAttribute] UpdateSession call failed."));
+        Session->ClearOnUpdateSessionCompleteDelegate_Handle(UpdateSessionDelegateHandle);
+        UpdateSessionDelegateHandle.Reset();
+    }
+#endif
 }

@@ -58,8 +58,19 @@ protected:
 	// Callback function. This function is ran when signing into EOS Game Services completes. 
 	void HandleLoginCompleted(int32 LocalUserNum, bool bWasSuccessful, const FUniqueNetId& UserId, const FString& Error);
 
-	// Delegate to bind callback event for login. 
+	// Delegate to bind callback event for login.
 	FDelegateHandle LoginDelegateHandle;
+
+	// Tutorial 2: Sign out of EOS Game Services. Should be paired with
+	// Login - real games typically logout on sign-out UI / app exit
+	// rather than relying on process termination.
+	void Logout();
+
+	// Callback function. Ran when logout completes.
+	void HandleLogoutCompleted(int32 LocalUserNum, bool bWasSuccessful);
+
+	// Delegate handle for logout.
+	FDelegateHandle LogoutDelegateHandle;
 
 	// Function to find EOS sessions. Hardcoded attribute key/value pair to keep things simple.
 	void FindSessions(FName SearchKey = "KeyName", FString SearchValue = "KeyValue");
@@ -219,6 +230,13 @@ protected:
 	void HandlePresenceReceived(const FUniqueNetId& UserId, const TSharedRef<FOnlineUserPresence>& Presence);
 	FDelegateHandle PresenceReceivedDelegateHandle;
 
+	// Tutorial 3 + 4 + 7: Shared completion handler for any
+	// IOnlineSession::UpdateSession calls (server-mode session attribute
+	// updates and P2P lobby attribute / member-attribute updates all
+	// route through the same OSS API).
+	void HandleUpdateSessionCompleted(FName SessionName, bool bWasSuccessful);
+	FDelegateHandle UpdateSessionDelegateHandle;
+
 	// Tutorial 13: Friends - read the local user's friends list and react
 	// to status changes. Pairs with Presence (query a friend's PUID for
 	// their rich-text status) and UserInfo (resolve PUID -> display name).
@@ -268,10 +286,25 @@ protected:
 	//   TestReadFriends
 	//     - fetches the local user's friends list ("default" filter);
 	//       on success logs each friend's id + cached presence summary
-//   TestShowFriendsOverlay
+	//   TestShowFriendsOverlay
 	//     - opens the EOS Social Overlay to the Friends list view.
 	//       Profile/invite overlay views are user-navigated only -
 	//       OSS-EOS does not expose programmatic open for those.
+	//   TestLogout
+	//     - signs the local user out of EOS Game Services. Pairs
+	//       with Login from Tutorial 2.
+	//   (Server-mode session attributes are NOT exposed via Exec - the
+	//    dedicated server has no console, and a client RPC for this
+	//    isn't representative of real games where attribute changes
+	//    are server-driven on gameplay events. See Tutorial 3:
+	//    Phase=Lobby at create, flipped to InProgress on first player
+	//    join in HandleRegisterPlayerCompleted.)
+	//   TestSetLobbyAttribute <Key> <Value>       (P2P only)
+	//     - host updates the lobby's overall Settings map. Joiners
+	//       calling this get an OSS error since they don't own the lobby.
+	//   TestSetMyMemberAttribute <Key> <Value>    (P2P only)
+	//     - any P2P member updates their own per-member attribute
+	//       (MemberSettings). Useful for team / ready / class state.
 	//
 	// Companion CLI flag (launch-time, not console):
 	//   -NoAutoJoin  - skip the post-login auto-find/join chain so the
@@ -307,8 +340,17 @@ protected:
 	UFUNCTION(Exec)
 	void TestReadFriends();
 
-UFUNCTION(Exec)
+	UFUNCTION(Exec)
 	void TestShowFriendsOverlay();
+
+	UFUNCTION(Exec)
+	void TestLogout();
+
+	UFUNCTION(Exec)
+	void TestSetLobbyAttribute(const FString& Key, const FString& Value);
+
+	UFUNCTION(Exec)
+	void TestSetMyMemberAttribute(const FString& Key, const FString& Value);
 
 public:
 	// RPCs are declared outside the P2PMODE guard because UHT can't see preprocessor
