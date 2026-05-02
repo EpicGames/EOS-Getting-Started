@@ -210,9 +210,8 @@ void AEOSPlayerState::QueryLeaderboardFriends(FString StatName, FName Leaderboar
 	//       EFriendsLists::FromString(Type, TEXT("")) in OnlineFriendsInterface.h, which since 5.8
 	//       ends its fallthrough branch with checkNoEntry() -> Assertion failed crash.
 	// The fix upstream would be to pass EFriendsLists::ToString(EFriendsLists::Default) instead of
-	// FString(), but as of the ++Fortnite+Main CL we checked the bug is still present - so it has
-	// not yet been fixed in UE5-Main. Once a 5.8 hotfix or 5.9 ships that resolves it, this
-	// workaround can be replaced with a single ReadLeaderboardsForFriends() call again.
+	// FString(). Once a UE hotfix or future release ships that resolves it, this workaround can
+	// be replaced with a single ReadLeaderboardsForFriends() call again.
 	//
 	// Workaround: explicitly ReadFriendsList("default") first, then build the friend-id array and
 	// call the lower-level ReadLeaderboards() directly. This also makes the underlying flow more
