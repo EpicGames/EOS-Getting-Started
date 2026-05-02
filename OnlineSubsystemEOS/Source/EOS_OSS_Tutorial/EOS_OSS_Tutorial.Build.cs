@@ -16,12 +16,9 @@ public class EOS_OSS_Tutorial : ModuleRules
         //   - HTTP + Json: REST + JSON for the dedicated server's Voice Web API calls.
         PrivateDependencyModuleNames.AddRange(new string[] { "VoiceChat", "EOSVoiceChat", "EOSShared", "HTTP", "Json", "EOSAntiCheat" });
 
-        // Tutorial 4: This will set the game to be in P2P mode instead of dedicated server.
-        // Single source of truth - Plugins/EOSAntiCheat/Source/EOSAntiCheat/EOSAntiCheat.Build.cs
-        // reads this file at build time and mirrors the P2PMODE value automatically, so flipping
-        // here is enough; do NOT add a parallel define in the plugin's Build.cs. Mismatched values
-        // historically crashed deep inside the AC plugin's delegate machinery
-        // (EXCEPTION_ACCESS_VIOLATION at first BeginPlay) with no clear pointer to the cause.
+        // Tutorial 4: Network topology toggle. Single source of truth - the EOSAntiCheat
+        // plugin's Build.cs reads this file at build time and mirrors the value, so flipping
+        // here is enough.
         PrivateDefinitions.Add("P2PMODE=0");
 
         // Tutorial 10: Toggle the EOS Anti-Cheat plugin's tutorial-side wiring on/off.

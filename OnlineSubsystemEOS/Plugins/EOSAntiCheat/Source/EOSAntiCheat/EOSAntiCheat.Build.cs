@@ -34,28 +34,35 @@ public class EOSAntiCheat : ModuleRules
 		// UE's path variables don't resolve to the package root, so file placement
 		// moved to ProtectEOSPackage (post-stage UAT command).
 
-		// Single source of truth for P2PMODE: read the project's
-		// EOS_OSS_Tutorial.Build.cs at build time and mirror its value here. The flag
-		// gates the plugin's peer-mode APIs; if the two modules disagreed it produced
-		// an EXCEPTION_ACCESS_VIOLATION deep inside the AC plugin's delegate
-		// machinery at first BeginPlay (compiles fine, crashes with no clear pointer).
-		// Falls back to "0" if the project file or define line is unreadable - matches
-		// the project's committed default.
-		string ProjectBuildCsPath = (Target.ProjectFile != null)
-			? Path.Combine(Target.ProjectFile.Directory.FullName,
-				"Source", "EOS_OSS_Tutorial", "EOS_OSS_Tutorial.Build.cs")
-			: null;
-		string P2PModeValue = "0";
-		if (ProjectBuildCsPath != null && File.Exists(ProjectBuildCsPath))
+		// Single source of truth for P2PMODE: read the project's EOS_OSS_Tutorial.Build.cs
+		// at build time and mirror its value. Mismatched defines crashed deep inside the
+		// plugin's delegate machinery at first BeginPlay (EXCEPTION_ACCESS_VIOLATION; no
+		// clear pointer to the cause), so fail the build loudly if we can't determine the
+		// value rather than silently fall back and re-introduce the bug.
+		if (Target.ProjectFile == null)
 		{
-			Match Match = Regex.Match(
-				File.ReadAllText(ProjectBuildCsPath),
-				@"PrivateDefinitions\.Add\(\s*""P2PMODE=(?<v>[01])""\s*\)");
-			if (Match.Success)
-			{
-				P2PModeValue = Match.Groups["v"].Value;
-			}
+			throw new System.Exception(
+				"EOSAntiCheat plugin requires project context to mirror P2PMODE; "
+				+ "Target.ProjectFile is null. Pass -Project=<path-to-uproject> to UBT, "
+				+ "or precompile this plugin only as part of a project build.");
 		}
-		PrivateDefinitions.Add("P2PMODE=" + P2PModeValue);
+		string ProjectBuildCsPath = Path.Combine(Target.ProjectFile.Directory.FullName,
+			"Source", "EOS_OSS_Tutorial", "EOS_OSS_Tutorial.Build.cs");
+		if (!File.Exists(ProjectBuildCsPath))
+		{
+			throw new System.Exception(
+				"EOSAntiCheat plugin can't find EOS_OSS_Tutorial.Build.cs at "
+				+ ProjectBuildCsPath + " - cannot mirror P2PMODE.");
+		}
+		Match Match = Regex.Match(
+			File.ReadAllText(ProjectBuildCsPath),
+			@"PrivateDefinitions\.Add\(\s*""P2PMODE=(?<v>[01])""\s*\)");
+		if (!Match.Success)
+		{
+			throw new System.Exception(
+				"EOSAntiCheat plugin couldn't find a P2PMODE=0 or P2PMODE=1 define in "
+				+ ProjectBuildCsPath + " - cannot mirror P2PMODE.");
+		}
+		PrivateDefinitions.Add("P2PMODE=" + Match.Groups["v"].Value);
 	}
 }

@@ -105,32 +105,39 @@ After this completes, launch the game via <stagedDir>/start_protected_game.exe.
 				throw new AutomationException("Inner game binary not found at {0}. Confirm -PackageDir / -GameExe or repackage.", InnerGameExeAbs);
 			}
 
-			// Detect a stale archived binary: BuildCookRun -archive copies the staged binary at
-			// Saved/StagedBuilds/Windows/<Project>/Binaries/Win64/<Project>.exe to its mirror
-			// in <PackageDir>. If a packaged client (or the start_protected_game.exe wrapping
-			// it) is still running, Windows file-locks the destination and the copy silently
+			// Detect a stale archived binary: BuildCookRun -archive copies the staged binary
+			// in Saved/StagedBuilds/Windows/<Project>/Binaries/Win64/ to its mirror in
+			// <PackageDir>. If a packaged client (or start_protected_game.exe wrapping it)
+			// is still running, Windows file-locks the destination and the copy silently
 			// no-ops while UAT logs BUILD SUCCESSFUL. Hashing the stale binary into the
-			// integrity catalog produces a package that boots and passes EAC integrity but
-			// runs the old code - we hit this in a P2P+ACMODE test session and lost ~30
-			// minutes chasing a "fix" that wasn't actually packaged. If the archive looks
-			// stale relative to the stage, abort with a clear message.
+			// integrity catalog then produces a package that boots, passes EAC integrity,
+			// and runs the old code.
+			//
+			// Two heuristics, either-or: file size mismatch (strong signal that the staged
+			// build was a different compile from what's in the archive), or staged-mtime
+			// noticeably newer than archived-mtime. The mtime check assumes UAT's default
+			// CopyFile behaviour (dest mtime = "now"); a custom mtime-preserving copy tool
+			// (robocopy /copy:DAT, etc.) would defeat it - the size check covers that case.
 			string StagedBinaryPath = Path.Combine(
 				ProjectDir, "Saved", "StagedBuilds", "Windows",
 				ProjectName, "Binaries", "Win64", GameExe);
 			if (File.Exists(StagedBinaryPath))
 			{
-				DateTime StagedTime = File.GetLastWriteTimeUtc(StagedBinaryPath);
-				DateTime ArchivedTime = File.GetLastWriteTimeUtc(InnerGameExeAbs);
-				TimeSpan Skew = StagedTime - ArchivedTime;
-				if (Skew > TimeSpan.FromSeconds(5))
+				FileInfo StagedInfo = new FileInfo(StagedBinaryPath);
+				FileInfo ArchivedInfo = new FileInfo(InnerGameExeAbs);
+				bool bSizeMismatch = StagedInfo.Length != ArchivedInfo.Length;
+				TimeSpan MtimeSkew = StagedInfo.LastWriteTimeUtc - ArchivedInfo.LastWriteTimeUtc;
+				bool bStaleMtime = MtimeSkew > TimeSpan.FromSeconds(5);
+				if (bSizeMismatch || bStaleMtime)
 				{
 					throw new AutomationException(
-						"Archived binary at {0} is older than staged binary at {1} by {2:0.#}s. "
-					  + "BuildCookRun -archive likely failed to overwrite the destination because "
-					  + "a packaged client (or start_protected_game.exe) was still running when "
-					  + "the archive ran - Windows file-locks the .exe and the copy silently no-ops. "
-					  + "Close every running packaged client, re-run BuildCookRun, then retry.",
-						InnerGameExeAbs, StagedBinaryPath, Skew.TotalSeconds);
+						"Archived binary at {0} appears stale relative to staged binary at {1} "
+					  + "(size mismatch={2}, staged-newer-by={3:0.#}s). BuildCookRun -archive "
+					  + "likely failed to overwrite the destination because a packaged client "
+					  + "(or start_protected_game.exe) was still running - Windows file-locks "
+					  + "the .exe and the copy silently no-ops. Close every running packaged "
+					  + "client, re-run BuildCookRun, then retry.",
+						InnerGameExeAbs, StagedBinaryPath, bSizeMismatch, MtimeSkew.TotalSeconds);
 				}
 			}
 

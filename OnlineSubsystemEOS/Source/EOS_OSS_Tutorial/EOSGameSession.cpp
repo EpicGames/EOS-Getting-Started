@@ -638,9 +638,9 @@ void AEOSGameSession::HandleDestroySessionCompleted(FName EOSSessionName, bool b
 
 
 #if !P2PMODE
-// ----------------------------------------------------------------------------------------------
-// Tutorial 11: Server-side voice-credentials flow (EOS Voice Web API).
-// ----------------------------------------------------------------------------------------------
+
+// Tutorial 11: server-side voice-credentials helper (EOS Voice Web API). Shared by the banner
+// block below.
 
 AEOSPlayerController* AEOSGameSession::FindPlayerControllerByNetId(const FUniqueNetIdRef& PlayerId) const
 {
@@ -831,7 +831,6 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
     AuthReq->ProcessRequest();
 }
 
-// ----------------------------------------------------------------------------------------------
 // =====================================================================
 // Tutorial 10: Anti-cheat - server-side glue (dedicated server only).
 //

@@ -24,9 +24,8 @@ class IVoiceChat;
 struct FVoiceChatResult;
 #endif
 
-
 /**
- * Child class of APlayerController to hold EOS OSS code. 
+ * Child class of APlayerController to hold EOS OSS code.
  */
 
  //Need to forward declare classes used
@@ -364,7 +363,9 @@ public:
 	void Client_ReceiveVoiceCredentials(const FString& RoomName, const FString& ParticipantToken, const FString& ClientBaseUrl);
 
 	// Tutorial 10: client signals load-complete + sends its EOS Connect IdToken for VerifyIdToken.
-	UFUNCTION(Server, Reliable)
+	// WithValidation rejects empty / oversize JWTs before the SDK call - the joiner controls this
+	// FString and a misbehaving client could otherwise blast huge strings at the authority.
+	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_NotifyAntiCheatReady(const FString& IdTokenJwt);
 
 	// Tutorial 10: bidirectional opaque EOS AntiCheat byte relay.
@@ -379,28 +380,20 @@ public:
 	void Server_PeerViolationDetected(const FUniqueNetIdRepl& OffendingPlayer, const FString& Reason);
 
 protected:
-	// Tutorial 11: speaking-state notification logging - works in both modes.
-	// In P2PMODE=0 the active voice user is the one we explicitly created via IVoiceChat::CreateUser
-	// (member VoiceChatUser, populated in HandleVoiceChatConnectComplete). In P2PMODE=1 it's the
-	// OSS-managed user backing the lobby voice path (IOnlineSubsystem::GetVoiceChatUserInterface).
+	// Tutorial 11 (cross-mode voice notification): see banner in the .cpp for full context.
+	/** Mode-aware: explicit user in P2PMODE=0, OSS-managed in P2PMODE=1. */
 	IVoiceChatUser* GetActiveVoiceChatUser() const;
-
-	// Idempotent. Subscribes our HandleVoiceChatPlayerTalkingUpdated handler to the active user's
-	// OnVoiceChatPlayerTalkingUpdated multicast. Called from multiple "voice is plausibly ready"
-	// hooks (HandleVoiceChatJoinChannelComplete, HandleCreateLobbyCompleted, BeginPlay) - the bool
-	// flag prevents double-binding.
+	/** Idempotent; called from multiple "voice is plausibly ready" hooks. */
 	void BindVoiceChatPlayerTalkingNotification();
-
-	// Per-player talking-state callback - logs only. Real games would drive a HUD speaking
-	// indicator (icon next to player name), filter to non-local participants, etc.
+	/** Per-player talking-state callback - logs only. */
 	void HandleVoiceChatPlayerTalkingUpdated(const FString& ChannelName, const FString& PlayerName, bool bIsTalking);
 	bool bVoiceTalkingNotificationBound = false;
+	// OSS-managed IVoiceChatUser outlives this PC (P2PMODE=1 lobby-voice path), so we clear the
+	// binding explicitly in EndPlay rather than relying on AddUObject's GC cleanup.
+	FDelegateHandle VoiceChatPlayerTalkingDelegateHandle;
 
-	// Tutorial 10: cross-mode AC handshake. Local non-host controller copies its EOS Connect
-	// IdToken via IEOSAntiCheat::CopyLocalIdToken and RPCs it to the authority via
-	// Server_NotifyAntiCheatReady. The authority calls VerifyIdToken before RegisterClient
-	// (!P2PMODE) / RegisterPeer (P2PMODE). Single callsite for CopyLocalIdToken; the SDK
-	// EOS_Connect_CopyIdToken call lives in the plugin (see IEOSAntiCheat::CopyLocalIdToken).
+	// Tutorial 10 (cross-mode AC handshake): joiner copies its EOS Connect IdToken and RPCs it
+	// to the authority for VerifyIdToken before RegisterClient (!P2PMODE) / RegisterPeer (P2PMODE).
 	void SendIdTokenForVerification();
 
 #if !P2PMODE

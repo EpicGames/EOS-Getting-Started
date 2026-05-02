@@ -23,13 +23,9 @@ REM Pass the map name explicitly - a packaged server with no map arg defaults
 REM to /Engine/Maps/Entry (empty), which welcomes connecting clients into a
 REM black-screen empty world.
 REM
-REM Clean shutdown: type "quit" in the server's console window (or send the
-REM "quit" exec command via the -log stdin if you launched without -log
-REM consuming the console) instead of Ctrl+C. Ctrl+C triggers an immediate
-REM process exit and the async EndSession/DestroySession EOS callbacks don't
-REM finish before shutdown - "Session ended!" / "Destroyed session
-REM succesfully." log lines won't appear. The session times out backend-side
-REM either way; this just keeps the server-side log clean.
+REM Clean shutdown: type "quit" in the server's console window instead of
+REM Ctrl+C. Ctrl+C kills the process before the async EndSession/DestroySession
+REM EOS callbacks complete (the session times out backend-side regardless).
 EOS_OSS_TutorialServer.exe ^
     ThirdPersonMap ^
     -log ^

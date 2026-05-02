@@ -283,6 +283,19 @@ void AEOSPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
         }
     }
 
+    // Tutorial 11: explicitly clear the speaking-state notification binding. The OSS-managed
+    // IVoiceChatUser (P2PMODE=1 lobby-voice path) outlives this PC, so AddUObject's GC cleanup
+    // would leave the multicast slot bound until the next sweep.
+    if (bVoiceTalkingNotificationBound && VoiceChatPlayerTalkingDelegateHandle.IsValid())
+    {
+        if (IVoiceChatUser* User = GetActiveVoiceChatUser())
+        {
+            User->OnVoiceChatPlayerTalkingUpdated().Remove(VoiceChatPlayerTalkingDelegateHandle);
+        }
+        VoiceChatPlayerTalkingDelegateHandle.Reset();
+        bVoiceTalkingNotificationBound = false;
+    }
+
     Super::EndPlay(EndPlayReason);
 }
 
@@ -335,13 +348,9 @@ void AEOSPlayerController::SaveGame()
 }
 
 // =====================================================================
-// Tutorial 1: Login (EAS + EOS Connect, Logout).
-//
-// IOnlineIdentity::Login + Logout drive sign-in/out against Epic Account
-// Services and EOS Game Services. The login completion handler is also
-// the project's post-login fan-out point - other tutorial subsystems
-// (Ecom queries, presence/friends bind, AC client session start) hook
-// off it. Mode-agnostic.
+// Tutorial 1: Login (EAS + EOS Connect, Logout). HandleLoginCompleted
+// is the project's post-login fan-out point - other tutorials hook off
+// it. Mode-agnostic.
 // =====================================================================
 
 void AEOSPlayerController::Login()
@@ -872,8 +881,7 @@ void AEOSPlayerController::TestRedeemEntitlement(const FString& EntitlementId)
     RedeemEntitlement(EntitlementId);
 }
 
-// =====================================================================
-// Tutorial 4: This code will only be included if P2PMode is enabled.
+// Tutorial 4: This code is only included if P2PMODE is enabled.
 
 #if P2PMODE
 
@@ -1056,7 +1064,11 @@ void AEOSPlayerController::HandleSessionSettingsUpdated(FName UpdatedSessionName
     // here - it defers to the verify-success path in Server_NotifyAntiCheatReady.
     // Other peers continue to RegisterPeer via the lobby (no JWT verify, lobby PUID
     // trust - acceptable since they're not the authority).
-    if (HasAuthority())
+    // Gate is IsLocalController() && HasAuthority() to make the "host on the local
+    // machine only" intent explicit - SetupNotifications binds this delegate from the
+    // local PC's BeginPlay path, but the explicit check defends against future code
+    // that might bind from a non-local PC.
+    if (IsLocalController() && HasAuthority())
     {
         return;
     }
@@ -1094,7 +1106,7 @@ void AEOSPlayerController::HandleParticipantSettingsUpdated(FName UpdatedSession
     }
 
     // Tutorial 10 (P2P branch): host defers RegisterPeer to the verify-success path.
-    if (HasAuthority())
+    if (IsLocalController() && HasAuthority())
     {
         return;
     }
@@ -1126,7 +1138,7 @@ void AEOSPlayerController::HandleParticipantJoined(FName EOSLobbyName, const FUn
     // Tutorial 10 (P2P branch): host defers RegisterPeer to the verify-success path
     // (Server_NotifyAntiCheatReady). Non-host peers RegisterPeer here directly with
     // lobby PUID trust - acceptable because non-hosts aren't the authority.
-    if (HasAuthority())
+    if (IsLocalController() && HasAuthority())
     {
         return;
     }
@@ -1515,26 +1527,16 @@ void AEOSPlayerController::HandleJoinSessionCompleted(FName SessionName, EOnJoin
 }
 
 // =====================================================================
-// Tutorial 6: EOS Social - Presence + Friends + Overlay.
-// Client-only (all three interfaces require a local user). Wraps three
-// generic OSS interfaces, all EOS-backed by OSS-EOS plugin's UserManagerEOS:
-//   - IOnlinePresence: publish + query rich-text status (custom
-//     game-defined text the EOS Social Overlay surfaces on friend rows).
-//   - IOnlineFriends: read the local user's friends list (display
-//     names, presence summary), react to friend status changes via
-//     OnFriendsChange. FOnlineFriend::GetDisplayName + GetPresence
-//     give us per-friend identity + status without a separate UserInfo
-//     query (IOnlineUser::GetUserInfo is broken for remote users in
-//     OSS-EOS UE 5.8 - only iterates local users).
-//   - IOnlineExternalUI: programmatically open the EOS Social Overlay
-//     Friends list. Profile + Invite views can't be opened
-//     programmatically - the EOS UI SDK only exposes ShowFriends,
-//     ShowBlockPlayer, and ShowReportPlayer; the latter two aren't
-//     surfaced through the OSS layer at all. Profile/invite are
-//     reachable only via user navigation inside the overlay itself.
-// Sits above the session-attached presence (Tutorial 4/5's bUsesPresence
-// join-time flip), which only declares "I'm in session X" - this layer
-// adds the custom status string + the social-graph surface around it.
+// Tutorial 6: EOS Social - Presence + Friends + Overlay (client-only).
+//
+// Three OSS interfaces, EOS-backed: IOnlinePresence (publish/query
+// rich-text status), IOnlineFriends (read list + OnFriendsChange) and
+// IOnlineExternalUI (ShowFriends only - Profile/Invite views are
+// user-navigation-only in the EOS UI SDK). FOnlineFriend exposes
+// per-friend display name + presence directly; we don't call
+// IOnlineUser::GetUserInfo because it's broken for remote users in
+// OSS-EOS UE 5.8. Layered above Tutorial 4/5's bUsesPresence flag,
+// which only declares "in session X".
 // =====================================================================
 
 void AEOSPlayerController::SetGamePresence(const FString& StatusText)
@@ -1824,16 +1826,10 @@ void AEOSPlayerController::TestShowFriendsOverlay()
 // =====================================================================
 // Tutorial 7: Title Storage + Player Data Storage.
 //
-// Two OSS interfaces with parallel shapes:
-//   - IOnlineTitleFile (IOnlineUserCloud's read-only sibling): server-
-//     authored game data files (configs, level pack lists, etc). Read
-//     by all players, never written.
-//   - IOnlineUserCloud: per-player save data. Read + write under the
-//     local user's PUID.
-// Both APIs follow EnumerateFiles -> ReadFile -> consume-bytes. The
-// player-cloud write path runs from AEOSPlayerController::SaveGame (on
-// Esc) and writes the character location for restore on next login.
-// Mode-agnostic.
+// IOnlineTitleFile (read-only, server-authored config/data) +
+// IOnlineUserCloud (per-player save data). Both follow EnumerateFiles
+// -> ReadFile -> consume-bytes. SaveGame on Esc persists character
+// location for next-login restore. Mode-agnostic.
 // =====================================================================
 
 void AEOSPlayerController::LoadTitleData()
@@ -2143,11 +2139,9 @@ void AEOSPlayerController::HandleReadPlayerFileCompleted(bool bWasSuccessfull, c
 
 
 // =====================================================================
-// Tutorial 8: Player Reports - SendPlayerReport via the OSS-EOS plugin's
-// public IOnlinePlayerReportEOS interface (no generic OSS abstraction).
-// Mode-agnostic: same call works for server-mode sessions and P2P
-// lobbies. Surfaced via Exec command - real games invoke this from a
-// post-match report UI.
+// Tutorial 8: Player Reports - SendPlayerReport via OSS-EOS plugin's
+// IOnlinePlayerReportEOS (EOS-only, no generic OSS abstraction).
+// Mode-agnostic.
 // =====================================================================
 
 void AEOSPlayerController::SendPlayerReport(const FUniqueNetIdRef& Reporter, const FUniqueNetIdRef& Reported, const FString& Message, const FString& ContextJson)
@@ -2672,9 +2666,9 @@ void AEOSPlayerController::LeaveVoiceChat()
     // shared with any other voice user in the game. Leave it initialized.
 }
 
-// ----------------------------------------------------------------------------------------------
+// =====================================================================
 // Tutorial 10: Client-side anti-cheat glue (dedicated-server branch).
-// ----------------------------------------------------------------------------------------------
+// =====================================================================
 
 #if ACMODE
 void AEOSPlayerController::BeginAntiCheatClientSession()
@@ -2775,21 +2769,11 @@ void AEOSPlayerController::Server_PeerViolationDetected_Implementation(const FUn
 // =====================================================================
 // Tutorial 11: Speaking-state notification (cross-mode).
 //
-// Subscribes to IVoiceChatUser::OnVoiceChatPlayerTalkingUpdated and logs
-// each (channel, player, isTalking) edge. Works in both topologies:
-//
-// - P2PMODE=0 (dedicated server): the local user is the one we created
-//   explicitly via IVoiceChat::CreateUser in HandleVoiceChatConnectComplete
-//   (see VoiceChatUser member).
-//
-// - P2PMODE=1 (listen-server-over-P2P with lobby voice): the OSS-EOS
-//   plugin auto-manages the voice user as part of the lobby flow
-//   (bUseLobbiesVoiceChatIfAvailable=true on the lobby session settings).
-//   We retrieve it via IOnlineSubsystem::GetVoiceChatUserInterface, which
-//   lazy-creates + Logs in the user on first call and caches it keyed by
-//   LocalUserId.
-//
-// Real games would drive a HUD speaking indicator from this; we just log.
+// Subscribes to IVoiceChatUser::OnVoiceChatPlayerTalkingUpdated. The
+// active user differs by mode: P2PMODE=0 uses the explicit
+// IVoiceChat::CreateUser one (member VoiceChatUser); P2PMODE=1 uses
+// the OSS-managed lobby voice user (GetVoiceChatUserInterface). We
+// just log; real games drive a HUD speaking indicator from this.
 // =====================================================================
 
 IVoiceChatUser* AEOSPlayerController::GetActiveVoiceChatUser() const
@@ -2797,7 +2781,12 @@ IVoiceChatUser* AEOSPlayerController::GetActiveVoiceChatUser() const
 #if P2PMODE
     // Cast IOnlineSubsystem -> IOnlineSubsystemEOS - GetVoiceChatUserInterface is an
     // EOS-specific extension on the OSS-EOS plugin, not on the generic OSS interface.
-    IOnlineSubsystemEOS* const EOSSubsystem = static_cast<IOnlineSubsystemEOS*>(Online::GetSubsystem(GetWorld()));
+    // Type-guard the cast (matches the pattern at HandleVoiceChatConnectComplete) - voice
+    // fails silently if EOS isn't the active OSS, so guarding is cheap insurance.
+    IOnlineSubsystem* const Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineSubsystemEOS* const EOSSubsystem = (Subsystem && Subsystem->GetSubsystemName() == EOS_SUBSYSTEM)
+        ? static_cast<IOnlineSubsystemEOS*>(Subsystem)
+        : nullptr;
     if (!EOSSubsystem)
     {
         return nullptr;
@@ -2834,7 +2823,7 @@ void AEOSPlayerController::BindVoiceChatPlayerTalkingNotification()
         return;
     }
 
-    User->OnVoiceChatPlayerTalkingUpdated().AddUObject(this, &ThisClass::HandleVoiceChatPlayerTalkingUpdated);
+    VoiceChatPlayerTalkingDelegateHandle = User->OnVoiceChatPlayerTalkingUpdated().AddUObject(this, &ThisClass::HandleVoiceChatPlayerTalkingUpdated);
     bVoiceTalkingNotificationBound = true;
 
     UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::BindVoiceChatPlayerTalkingNotification] Bound speaking-state notification."));
@@ -2842,7 +2831,7 @@ void AEOSPlayerController::BindVoiceChatPlayerTalkingNotification()
 
 void AEOSPlayerController::HandleVoiceChatPlayerTalkingUpdated(const FString& ChannelName, const FString& PlayerName, bool bIsTalking)
 {
-    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[Voice] %s %s talking in channel %s."),
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandleVoiceChatPlayerTalkingUpdated] %s %s talking in channel %s."),
         *PlayerName,
         bIsTalking ? TEXT("started") : TEXT("stopped"),
         *ChannelName);
@@ -2866,13 +2855,31 @@ void AEOSPlayerController::SendIdTokenForVerification()
     IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
     FUniqueNetIdPtr LocalNetId = Identity.IsValid() ? Identity->GetUniquePlayerId(0) : nullptr;
 
-    FString IdTokenJwt;
-    if (AntiCheat && LocalNetId.IsValid())
+    if (!AntiCheat || !LocalNetId.IsValid())
     {
-        AntiCheat->CopyLocalIdToken(LocalNetId.ToSharedRef(), IdTokenJwt);
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::SendIdTokenForVerification] AC plugin or local NetId unavailable - skipping RPC."));
+        return;
     }
+
+    FString IdTokenJwt;
+    AntiCheat->CopyLocalIdToken(LocalNetId.ToSharedRef(), IdTokenJwt);
+    if (IdTokenJwt.IsEmpty())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::SendIdTokenForVerification] CopyLocalIdToken returned empty JWT - skipping RPC. Authority would have rejected this anyway."));
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::SendIdTokenForVerification] Sending IdToken (%d bytes) to authority for VerifyIdToken."), IdTokenJwt.Len());
     Server_NotifyAntiCheatReady(IdTokenJwt);
 #endif
+}
+
+bool AEOSPlayerController::Server_NotifyAntiCheatReady_Validate(const FString& IdTokenJwt)
+{
+    // Reject empty / oversize payloads. EOS Connect IdTokens are well under 4 KB; a misbehaving
+    // client could otherwise blast huge strings and force the authority into a wasted VerifyIdToken
+    // round-trip + kick path.
+    return !IdTokenJwt.IsEmpty() && IdTokenJwt.Len() <= 4096;
 }
 
 void AEOSPlayerController::Server_NotifyAntiCheatReady_Implementation(const FString& IdTokenJwt)
@@ -2884,6 +2891,21 @@ void AEOSPlayerController::Server_NotifyAntiCheatReady_Implementation(const FStr
     FUniqueNetIdPtr ClaimedNetIdPtr = PlayerState->GetUniqueId().GetUniqueNetId();
     if (!ClaimedNetIdPtr.IsValid()) { return; }
     const FUniqueNetIdRef ClaimedNetId = ClaimedNetIdPtr.ToSharedRef();
+
+    // Type-guard before scheduling verify: the EAC plugin's VerifyIdToken does an unguarded
+    // static_cast<const IUniqueNetIdEOS&> on this id (UB if it isn't actually EOS-typed).
+    if (ClaimedNetId->GetType() != EOS_SUBSYSTEM)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Server_NotifyAntiCheatReady] PlayerState NetId is not an EOS id (type=%s) - kicking."), *ClaimedNetId->GetType().ToString());
+        if (AGameModeBase* GM = GetWorld() ? GetWorld()->GetAuthGameMode() : nullptr)
+        {
+            if (AGameSession* GS = GM->GameSession)
+            {
+                GS->KickPlayer(this, FText::FromString(TEXT("AntiCheat: invalid identity type")));
+            }
+        }
+        return;
+    }
 
     IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
     if (!AntiCheat)
@@ -2899,7 +2921,13 @@ void AEOSPlayerController::Server_NotifyAntiCheatReady_Implementation(const FStr
             AEOSPlayerController* PC = WeakThis.Get();
             if (!PC) { return; }
 
-            AGameModeBase* GM = PC->GetWorld() ? PC->GetWorld()->GetAuthGameMode() : nullptr;
+            // World may already be tearing down (seamless travel, map change, server quit) by the
+            // time the async verify completes. KickPlayer on a teardown-stage GameSession is a
+            // no-op that confuses the log; bail early.
+            UWorld* World = PC->GetWorld();
+            if (!World || World->bIsTearingDown) { return; }
+
+            AGameModeBase* GM = World->GetAuthGameMode();
             AGameSession* GS = GM ? GM->GameSession : nullptr;
             if (!GS) { return; }
 
@@ -2918,11 +2946,10 @@ void AEOSPlayerController::Server_NotifyAntiCheatReady_Implementation(const FStr
                 EosGameSession->RegisterAntiCheatClient(ClaimedNetId);
             }
 #else
-            // Listen-server host: RegisterPeer the joiner on host's local AC Client. Other
-            // peers RegisterPeer this joiner via the lobby events with no JWT verify (acceptable
-            // because they're not the authority - see EAC PeerToPeer trust model). Re-fetch
-            // IEOSAntiCheat::Get() inside the lambda - the singleton is stable, but the outer
-            // AntiCheat local isn't in the capture list (lambda captures only WeakThis + ClaimedNetId).
+            // Listen-server host: RegisterPeer the joiner on host's local AC Client. Re-fetches
+            // IEOSAntiCheat::Get() inside the lambda - the outer AntiCheat local isn't in the
+            // capture list. Other peers RegisterPeer via lobby events without JWT verify (they're
+            // not the authority - see EAC PeerToPeer trust model).
             if (IEOSAntiCheat* AC = IEOSAntiCheat::Get())
             {
                 if (IEOSAntiCheatClient* Client = AC->GetClient())

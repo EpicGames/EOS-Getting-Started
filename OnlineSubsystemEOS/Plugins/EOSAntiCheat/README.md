@@ -48,12 +48,10 @@ command refuses to run on `ACMODE=0` builds (silent misconfiguration
 risk), and the plain `BuildCookRun` output is itself a shippable
 artifact in that mode.
 
-Note that "listen-server" here refers to the UE replication topology
-(`NM_ListenServer`); the EAC mode running on top of it is `PeerToPeer`,
-because no participant is a dedicated EAC Server. An alternative the
-tutorial doesn't take is to run the listen-server host *also* as an EAC
-Server — that's a valid EAC SDK deployment, just one this project's
-design choice doesn't exercise.
+"Listen-server" above is the UE replication topology (`NM_ListenServer`);
+the EAC mode running on it is `PeerToPeer` because no participant is a
+dedicated EAC Server. Running the host as EAC Server is also valid but
+out of scope here.
 
 ## One-time setup
 
