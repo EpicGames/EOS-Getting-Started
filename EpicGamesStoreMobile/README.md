@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/github/license/mashape/apistatus.svg)](../LICENSE)
 
-This repository contains the source code that accompanies the course: [Epic Games Store Mobile - The Online Subsystem EOS Plugin](link to course). The course walks you through the minimum features needed to publish a game with in-app purchases on the Epic Games Store Mobile. 
+This repository contains the source code that accompanies the course: [Epic Games Store Mobile - The Online Subsystem EOS Plugin](https://dev.epicgames.com/community/learning/courses/nek/unreal-engine-the-online-subsystem-eos-plugin-epic-games-store-mobile/Rxev/unreal-engine-epic-games-store-mobile-the-online-subsystem-eos-plugin-introduction-and-project-setup). The course walks you through the minimum features needed to publish a game with in-app purchases on the Epic Games Store Mobile. 
 
 ## Requirements
 
