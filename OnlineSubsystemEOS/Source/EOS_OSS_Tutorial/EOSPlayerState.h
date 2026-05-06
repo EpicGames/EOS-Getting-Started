@@ -4,53 +4,56 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerState.h"
-#include "Interfaces/OnlineLeaderboardInterface.h"
-#include "Interfaces/OnlineFriendsInterface.h"
+#include "Interfaces/OnlineLeaderboardInterface.h" // Tutorial 2: FOnlineLeaderboardReadRef in HandleQueryLeaderboardComplete signature.
+#include "Interfaces/OnlineFriendsInterface.h"     // Tutorial 2: friend-list types used by the friend-leaderboard workaround.
 #include "EOSPlayerState.generated.h"
 
 /**
- * 
+ * Child class of APlayerState to hold stats, achievements, and leaderboards.
  */
-
 UCLASS()
 class EOS_OSS_TUTORIAL_API AEOSPlayerState : public APlayerState
 {
 	GENERATED_BODY()
-public:
-	// Class constructor, included for completeness but not used.
-	AEOSPlayerState(); 
 
-	// Function to update  player stat - this is used to unlock achievements.
+public:
+	// Class constructor. We won't use this in this tutorial.
+	AEOSPlayerState();
+
+	/* =============== Tutorial 2 - Achievements + Stats + Leaderboards ============================= */
+
+	// Function to directly unlock an achievement by ID. EOS supports two unlock paths: stat-threshold (UpdateStat below) and direct (this function). Use direct for achievements that aren't tied to a measurable stat.
+	void UnlockAchievement(FString AchievementId);
+
+	// Function to update a player stat. Stat thresholds can drive achievement unlocks.
 	void UpdateStat(FString StatName, int32 StatValue);
 
-	// Function to return global leaderboard.
+	// Function to query the global leaderboard.
 	void QueryLeaderboardGlobal(FName LeaderboardName = "JUMPERLEADERBOARD");
 
-	// Function to friends leaderboard based on a single stat.
-	void QueryLeaderboardFriends(FString StatName, FName LeaderboardName = "JUMPERLEADERBOARD" );
- 
+	// Function to query the friend-scoped leaderboard for a single stat.
+	void QueryLeaderboardFriends(FString StatName, FName LeaderboardName = "JUMPERLEADERBOARD");
+
 protected:
-	// Function called when play begins, included for completeness but not used.
+
+	// Function called when play begins.
 	virtual void BeginPlay();
 
-	// Bug-fix: client-side OSS RegisterPlayer sync. The OSS-EOS plugin only
-	// populates the server's local FNamedOnlineSession::RegisteredPlayers via
-	// AGameSession::RegisterPlayer in PostLogin; clients never replicate that
-	// roster, so EGS social overlay / friend-presence checks see an empty
-	// list. Hook OnRep_UniqueId (fires on clients once UniqueId replicates
-	// in - AddPlayerState fires too early, before UniqueId is set) to call
-	// Session->RegisterPlayer locally for self. EndPlay mirrors with
-	// UnregisterPlayer. Server-mode only - lobbies push their own member
-	// list via the EOS Lobby service.
-	virtual void OnRep_UniqueId() override;
-	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
-
-	// Delegate to bind callback event for when a leaderboard is retrieved. Same delgate used for global and friend leaderboards.
-	FDelegateHandle QueryLeaderboardDelegateHandle;
-
-	// Callback function. This function will run when a global OR friend leaderboard is retrieved.
+	// Callback function. Ran when a global OR friend leaderboard query completes (same delegate is reused for both).
 	void HandleQueryLeaderboardComplete(bool bWasSuccessful, FOnlineLeaderboardReadRef LeaderboardReadRef);
 
-	// Callback fired after ReadFriendsList completes. Used by the friend-leaderboard workaround (see QueryLeaderboardFriends).
+	// Delegate handle for leaderboard reads. Same handle used for global and friend leaderboards.
+	FDelegateHandle QueryLeaderboardDelegateHandle;
+
+	// Callback function. Ran when ReadFriendsList completes during the friend-leaderboard flow (see QueryLeaderboardFriends for why the read is split in two).
 	void HandleReadFriendsListForLeaderboard(int32 LocalUserNum, bool bWasSuccessful, const FString& ListName, const FString& ErrorStr, FOnlineLeaderboardReadRef LeaderboardReadRef);
+
+	// Callback function. Ran when UnlockAchievement (WriteAchievements) completes. Parameter is named UserId rather than PlayerId to avoid shadowing APlayerState::PlayerId.
+	void HandleUnlockAchievementComplete(const FUniqueNetId& UserId, const bool bWasSuccessful);
+
+	// Function called when UniqueId replicates in. Calls Session->RegisterPlayer locally so the OSS named session has a complete roster on each client (server-mode workaround - see .cpp for full rationale).
+	virtual void OnRep_UniqueId() override;
+
+	// Function called when play ends. Mirrors OnRep_UniqueId on the way out - clients only.
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 };

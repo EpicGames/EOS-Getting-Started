@@ -1,9 +1,10 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "EOSAntiCheatClient.h"
 #include "IEOSAntiCheat.h"
 
 #include "OnlineSubsystemEOSTypesPublic.h"  // IUniqueNetIdEOS - read ProductUserId for LocalUser.
+#include "OnlineSubsystemTypes.h"            // OSS_REDACT - <Redacted> in Shipping, full string in dev/debug.
 #include "EOSShared.h"                       // LexToString(EOS_ProductUserId).
 
 #include "eos_anticheatclient.h"
@@ -38,16 +39,19 @@ FEOSAntiCheatClient::FEOSAntiCheatClient(EOS_HPlatform InPlatform)
 	// Notification IDs are interface-handle scoped, not session scoped - bind
 	// once at construction so the SDK has handlers wired the moment any
 	// callback could fire. Handlers gate on bSessionActive where appropriate.
-	{
-		EOS_AntiCheatClient_AddNotifyMessageToServerOptions Opts = {};
-		Opts.ApiVersion = EOS_ANTICHEATCLIENT_ADDNOTIFYMESSAGETOSERVER_API_LATEST;
-		MessageToServerNotifyId = EOS_AntiCheatClient_AddNotifyMessageToServer(Handle, &Opts, this, &FEOSAntiCheatClient::OnMessageToServerStatic);
-	}
-	{
-		EOS_AntiCheatClient_AddNotifyClientIntegrityViolatedOptions Opts = {};
-		Opts.ApiVersion = EOS_ANTICHEATCLIENT_ADDNOTIFYCLIENTINTEGRITYVIOLATED_API_LATEST;
-		ClientIntegrityViolatedNotifyId = EOS_AntiCheatClient_AddNotifyClientIntegrityViolated(Handle, &Opts, this, &FEOSAntiCheatClient::OnClientIntegrityViolatedStatic);
-	}
+
+	// ClientIntegrityViolated fires in both modes - local-client integrity is mode-agnostic.
+	EOS_AntiCheatClient_AddNotifyClientIntegrityViolatedOptions IntegrityOpts = {};
+	IntegrityOpts.ApiVersion = EOS_ANTICHEATCLIENT_ADDNOTIFYCLIENTINTEGRITYVIOLATED_API_LATEST;
+	ClientIntegrityViolatedNotifyId = EOS_AntiCheatClient_AddNotifyClientIntegrityViolated(Handle, &IntegrityOpts, this, &FEOSAntiCheatClient::OnClientIntegrityViolatedStatic);
+
+#if !P2PMODE
+	// MessageToServer is the client-to-EAC-Server outbound channel - only meaningful
+	// in ClientServer mode. PeerToPeer mode uses MessageToPeer instead (below).
+	EOS_AntiCheatClient_AddNotifyMessageToServerOptions MsgToServerOpts = {};
+	MsgToServerOpts.ApiVersion = EOS_ANTICHEATCLIENT_ADDNOTIFYMESSAGETOSERVER_API_LATEST;
+	MessageToServerNotifyId = EOS_AntiCheatClient_AddNotifyMessageToServer(Handle, &MsgToServerOpts, this, &FEOSAntiCheatClient::OnMessageToServerStatic);
+#endif
 
 #if P2PMODE
 	// Cache the socket id + channel hash once - both are constant for the
@@ -58,21 +62,17 @@ FEOSAntiCheatClient::FEOSAntiCheatClient(EOS_HPlatform InPlatform)
 
 	// Peer notifies live on the same AC client handle - bind here too so the
 	// SDK has handlers ready before the first PeerToPeer BeginSession.
-	{
-		EOS_AntiCheatClient_AddNotifyMessageToPeerOptions Opts = {};
-		Opts.ApiVersion = EOS_ANTICHEATCLIENT_ADDNOTIFYMESSAGETOPEER_API_LATEST;
-		MessageToPeerNotifyId = EOS_AntiCheatClient_AddNotifyMessageToPeer(Handle, &Opts, this, &FEOSAntiCheatClient::OnMessageToPeerStatic);
-	}
-	{
-		EOS_AntiCheatClient_AddNotifyPeerActionRequiredOptions Opts = {};
-		Opts.ApiVersion = EOS_ANTICHEATCLIENT_ADDNOTIFYPEERACTIONREQUIRED_API_LATEST;
-		PeerActionRequiredNotifyId = EOS_AntiCheatClient_AddNotifyPeerActionRequired(Handle, &Opts, this, &FEOSAntiCheatClient::OnPeerActionRequiredStatic);
-	}
-	{
-		EOS_AntiCheatClient_AddNotifyPeerAuthStatusChangedOptions Opts = {};
-		Opts.ApiVersion = EOS_ANTICHEATCLIENT_ADDNOTIFYPEERAUTHSTATUSCHANGED_API_LATEST;
-		PeerAuthStatusChangedNotifyId = EOS_AntiCheatClient_AddNotifyPeerAuthStatusChanged(Handle, &Opts, this, &FEOSAntiCheatClient::OnPeerAuthStatusChangedStatic);
-	}
+	EOS_AntiCheatClient_AddNotifyMessageToPeerOptions MsgToPeerOpts = {};
+	MsgToPeerOpts.ApiVersion = EOS_ANTICHEATCLIENT_ADDNOTIFYMESSAGETOPEER_API_LATEST;
+	MessageToPeerNotifyId = EOS_AntiCheatClient_AddNotifyMessageToPeer(Handle, &MsgToPeerOpts, this, &FEOSAntiCheatClient::OnMessageToPeerStatic);
+
+	EOS_AntiCheatClient_AddNotifyPeerActionRequiredOptions PeerActionOpts = {};
+	PeerActionOpts.ApiVersion = EOS_ANTICHEATCLIENT_ADDNOTIFYPEERACTIONREQUIRED_API_LATEST;
+	PeerActionRequiredNotifyId = EOS_AntiCheatClient_AddNotifyPeerActionRequired(Handle, &PeerActionOpts, this, &FEOSAntiCheatClient::OnPeerActionRequiredStatic);
+
+	EOS_AntiCheatClient_AddNotifyPeerAuthStatusChangedOptions PeerAuthStatusOpts = {};
+	PeerAuthStatusOpts.ApiVersion = EOS_ANTICHEATCLIENT_ADDNOTIFYPEERAUTHSTATUSCHANGED_API_LATEST;
+	PeerAuthStatusChangedNotifyId = EOS_AntiCheatClient_AddNotifyPeerAuthStatusChanged(Handle, &PeerAuthStatusOpts, this, &FEOSAntiCheatClient::OnPeerAuthStatusChangedStatic);
 #endif
 }
 
@@ -85,16 +85,18 @@ FEOSAntiCheatClient::~FEOSAntiCheatClient()
 
 	if (Handle)
 	{
-		if (MessageToServerNotifyId != EOS_INVALID_NOTIFICATIONID)
-		{
-			EOS_AntiCheatClient_RemoveNotifyMessageToServer(Handle, MessageToServerNotifyId);
-			MessageToServerNotifyId = EOS_INVALID_NOTIFICATIONID;
-		}
 		if (ClientIntegrityViolatedNotifyId != EOS_INVALID_NOTIFICATIONID)
 		{
 			EOS_AntiCheatClient_RemoveNotifyClientIntegrityViolated(Handle, ClientIntegrityViolatedNotifyId);
 			ClientIntegrityViolatedNotifyId = EOS_INVALID_NOTIFICATIONID;
 		}
+#if !P2PMODE
+		if (MessageToServerNotifyId != EOS_INVALID_NOTIFICATIONID)
+		{
+			EOS_AntiCheatClient_RemoveNotifyMessageToServer(Handle, MessageToServerNotifyId);
+			MessageToServerNotifyId = EOS_INVALID_NOTIFICATIONID;
+		}
+#endif
 #if P2PMODE
 		if (MessageToPeerNotifyId != EOS_INVALID_NOTIFICATIONID)
 		{
@@ -119,6 +121,7 @@ bool FEOSAntiCheatClient::BeginSession(EMode Mode, const FUniqueNetIdRef& LocalU
 {
 	if (!Handle)
 	{
+		UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::BeginSession] Skipped: no AC client handle (ctor returned null - bootstrapper not used?)."));
 		return false;
 	}
 	if (bSessionActive)
@@ -150,7 +153,7 @@ bool FEOSAntiCheatClient::BeginSession(EMode Mode, const FUniqueNetIdRef& LocalU
 	bSessionActive = true;
 	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::BeginSession] Session started (mode=%s, localUser=%s)."),
 		Mode == EMode::PeerToPeer ? TEXT("PeerToPeer") : TEXT("ClientServer"),
-		*LexToString(LocalUserPuid));
+		*OSS_REDACT(LexToString(LocalUserPuid)));
 
 #if P2PMODE
 	if (Mode == EMode::PeerToPeer)
@@ -166,6 +169,7 @@ void FEOSAntiCheatClient::EndSession()
 {
 	if (!Handle || !bSessionActive)
 	{
+		UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::EndSession] Skipped: no handle or session not active (idempotent)."));
 		return;
 	}
 
@@ -181,10 +185,15 @@ void FEOSAntiCheatClient::EndSession()
 	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::EndSession] Session ended."));
 }
 
+#if !P2PMODE
 void FEOSAntiCheatClient::ReceiveMessageFromServer(TConstArrayView<uint8> MessageBytes)
 {
 	if (!Handle || !bSessionActive || MessageBytes.Num() == 0)
 	{
+#if !UE_BUILD_SHIPPING
+		UE_LOG(LogEOSAntiCheatPlugin, VeryVerbose, TEXT("[FEOSAntiCheatClient::ReceiveMessageFromServer] Dropped %d bytes (Handle=%d, Active=%d)."),
+			MessageBytes.Num(), Handle != nullptr, bSessionActive);
+#endif
 		return;
 	}
 
@@ -211,6 +220,7 @@ void EOS_CALL FEOSAntiCheatClient::OnMessageToServerStatic(const EOS_AntiCheatCl
 		static_cast<FEOSAntiCheatClient*>(Data->ClientData)->OnMessageToServer(*Data);
 	}
 }
+#endif // !P2PMODE
 
 void EOS_CALL FEOSAntiCheatClient::OnClientIntegrityViolatedStatic(const EOS_AntiCheatClient_OnClientIntegrityViolatedCallbackInfo* Data)
 {
@@ -220,6 +230,7 @@ void EOS_CALL FEOSAntiCheatClient::OnClientIntegrityViolatedStatic(const EOS_Ant
 	}
 }
 
+#if !P2PMODE
 void FEOSAntiCheatClient::OnMessageToServer(const EOS_AntiCheatClient_OnMessageToServerCallbackInfo& Info)
 {
 	TArray<uint8> Bytes;
@@ -231,6 +242,7 @@ void FEOSAntiCheatClient::OnMessageToServer(const EOS_AntiCheatClient_OnMessageT
 
 	MessageToServerDelegate.Broadcast(Bytes);
 }
+#endif // !P2PMODE
 
 void FEOSAntiCheatClient::OnClientIntegrityViolated(const EOS_AntiCheatClient_OnClientIntegrityViolatedCallbackInfo& Info)
 {
@@ -269,13 +281,11 @@ void FEOSAntiCheatClient::BeginP2PSession(const FUniqueNetIdRef& LocalUser)
 	LocalPuid = static_cast<const IUniqueNetIdEOS&>(*LocalUser).GetProductUserId();
 
 	// Accept incoming AC-socket connections only from RegisterPeer'd peers.
-	{
-		EOS_P2P_AddNotifyPeerConnectionRequestOptions Opts = {};
-		Opts.ApiVersion = EOS_P2P_ADDNOTIFYPEERCONNECTIONREQUEST_API_LATEST;
-		Opts.LocalUserId = LocalPuid;
-		Opts.SocketId = &AntiCheatSocketId;
-		P2PConnectionRequestNotifyId = EOS_P2P_AddNotifyPeerConnectionRequest(P2PHandle, &Opts, this, &FEOSAntiCheatClient::OnP2PConnectionRequestStatic);
-	}
+	EOS_P2P_AddNotifyPeerConnectionRequestOptions ConnReqOpts = {};
+	ConnReqOpts.ApiVersion = EOS_P2P_ADDNOTIFYPEERCONNECTIONREQUEST_API_LATEST;
+	ConnReqOpts.LocalUserId = LocalPuid;
+	ConnReqOpts.SocketId = &AntiCheatSocketId;
+	P2PConnectionRequestNotifyId = EOS_P2P_AddNotifyPeerConnectionRequest(P2PHandle, &ConnReqOpts, this, &FEOSAntiCheatClient::OnP2PConnectionRequestStatic);
 
 	// ~30Hz pump - SDK tick alone won't drain the inbound packet queue.
 	ReceivePumpHandle = FTSTicker::GetCoreTicker().AddTicker(
@@ -283,13 +293,14 @@ void FEOSAntiCheatClient::BeginP2PSession(const FUniqueNetIdRef& LocalUser)
 		1.0f / 30.0f);
 
 	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::BeginP2PSession] P2P AC socket '%s' opened for localUser=%s."),
-		ANSI_TO_TCHAR(AntiCheatSocketName), *LexToString(LocalPuid));
+		ANSI_TO_TCHAR(AntiCheatSocketName), *OSS_REDACT(LexToString(LocalPuid)));
 }
 
 void FEOSAntiCheatClient::EndP2PSession()
 {
 	if (!P2PHandle)
 	{
+		UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::EndP2PSession] Skipped: P2P session not active (idempotent)."));
 		return;
 	}
 
@@ -318,6 +329,8 @@ bool FEOSAntiCheatClient::RegisterPeer(const FUniqueNetIdRef& PeerUser)
 {
 	if (!Handle || !bSessionActive)
 	{
+		UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheatClient::RegisterPeer] Called before BeginSession (Handle=%d, Active=%d) - caller ordering bug."),
+			Handle != nullptr, bSessionActive);
 		return false;
 	}
 
@@ -330,7 +343,7 @@ bool FEOSAntiCheatClient::RegisterPeer(const FUniqueNetIdRef& PeerUser)
 	}
 	if (PeerByProductId.Contains(PeerPuid))
 	{
-		UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::RegisterPeer] Peer %s already registered - ignoring."), *LexToString(PeerPuid));
+		UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::RegisterPeer] Peer %s already registered - ignoring."), *OSS_REDACT(LexToString(PeerPuid)));
 		return true;
 	}
 
@@ -355,13 +368,13 @@ bool FEOSAntiCheatClient::RegisterPeer(const FUniqueNetIdRef& PeerUser)
 	if (Result != EOS_EResult::EOS_Success)
 	{
 		UE_LOG(LogEOSAntiCheatPlugin, Error, TEXT("[FEOSAntiCheatClient::RegisterPeer] EOS_AntiCheatClient_RegisterPeer(%s) failed: %s"),
-			*LexToString(PeerPuid), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+			*OSS_REDACT(LexToString(PeerPuid)), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
 		return false;
 	}
 
 	PeerByProductId.Add(PeerPuid, PeerUser);
 	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::RegisterPeer] Peer %s registered (auth timeout %ds)."),
-		*LexToString(PeerPuid), ClampedTimeout);
+		*OSS_REDACT(LexToString(PeerPuid)), ClampedTimeout);
 	return true;
 }
 
@@ -369,12 +382,15 @@ void FEOSAntiCheatClient::UnregisterPeer(const FUniqueNetIdRef& PeerUser)
 {
 	if (!Handle || !bSessionActive)
 	{
+		UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheatClient::UnregisterPeer] Called outside an active session (Handle=%d, Active=%d)."),
+			Handle != nullptr, bSessionActive);
 		return;
 	}
 
 	const EOS_ProductUserId PeerPuid = static_cast<const IUniqueNetIdEOS&>(*PeerUser).GetProductUserId();
 	if (!PeerByProductId.Remove(PeerPuid))
 	{
+		UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::UnregisterPeer] Peer %s not in registry (idempotent)."), *OSS_REDACT(LexToString(PeerPuid)));
 		return;
 	}
 
@@ -383,13 +399,17 @@ void FEOSAntiCheatClient::UnregisterPeer(const FUniqueNetIdRef& PeerUser)
 	Options.PeerHandle = reinterpret_cast<EOS_AntiCheatCommon_ClientHandle>(PeerPuid);
 	EOS_AntiCheatClient_UnregisterPeer(Handle, &Options);
 
-	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::UnregisterPeer] Peer %s unregistered."), *LexToString(PeerPuid));
+	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::UnregisterPeer] Peer %s unregistered."), *OSS_REDACT(LexToString(PeerPuid)));
 }
 
 bool FEOSAntiCheatClient::TickReceivePump(float /*DeltaSeconds*/)
 {
 	if (!P2PHandle || !bSessionActive)
 	{
+#if !UE_BUILD_SHIPPING
+		UE_LOG(LogEOSAntiCheatPlugin, VeryVerbose, TEXT("[FEOSAntiCheatClient::TickReceivePump] Skipped: P2P=%d, Active=%d (ticker still bound; expected during teardown)."),
+			P2PHandle != nullptr, bSessionActive);
+#endif
 		return true;
 	}
 
@@ -429,7 +449,7 @@ bool FEOSAntiCheatClient::TickReceivePump(float /*DeltaSeconds*/)
 		if (!PeerByProductId.Contains(RemotePuid))
 		{
 			UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::TickReceivePump] Dropped %d bytes from unregistered peer %s."),
-				BytesWritten, *LexToString(RemotePuid));
+				BytesWritten, *OSS_REDACT(LexToString(RemotePuid)));
 			continue;
 		}
 
@@ -442,7 +462,7 @@ bool FEOSAntiCheatClient::TickReceivePump(float /*DeltaSeconds*/)
 		if (RmResult != EOS_EResult::EOS_Success)
 		{
 			UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheatClient::TickReceivePump] SDK rejected %d bytes from %s: %s"),
-				BytesWritten, *LexToString(RemotePuid), ANSI_TO_TCHAR(EOS_EResult_ToString(RmResult)));
+				BytesWritten, *OSS_REDACT(LexToString(RemotePuid)), ANSI_TO_TCHAR(EOS_EResult_ToString(RmResult)));
 		}
 	}
 	return true;
@@ -486,6 +506,10 @@ void FEOSAntiCheatClient::OnMessageToPeer(const EOS_AntiCheatCommon_OnMessageToC
 	const EOS_ProductUserId PeerPuid = reinterpret_cast<EOS_ProductUserId>(Info.ClientHandle);
 	if (!P2PHandle || !PeerByProductId.Contains(PeerPuid))
 	{
+#if !UE_BUILD_SHIPPING
+		UE_LOG(LogEOSAntiCheatPlugin, VeryVerbose, TEXT("[FEOSAntiCheatClient::OnMessageToPeer] Dropped %u bytes for %s (P2P=%d, registered=%d)."),
+			Info.MessageDataSizeBytes, *OSS_REDACT(LexToString(PeerPuid)), P2PHandle != nullptr, PeerByProductId.Contains(PeerPuid));
+#endif
 		return;
 	}
 
@@ -506,12 +530,12 @@ void FEOSAntiCheatClient::OnMessageToPeer(const EOS_AntiCheatCommon_OnMessageToC
 	if (Result != EOS_EResult::EOS_Success)
 	{
 		UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheatClient::OnMessageToPeer] SendPacket(%s, %u bytes) failed: %s"),
-			*LexToString(PeerPuid), Info.MessageDataSizeBytes, ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+			*OSS_REDACT(LexToString(PeerPuid)), Info.MessageDataSizeBytes, ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
 	}
 
 #if !UE_BUILD_SHIPPING
 	UE_LOG(LogEOSAntiCheatPlugin, VeryVerbose, TEXT("[FEOSAntiCheatClient::OnMessageToPeer] local -> %s, %u bytes."),
-		*LexToString(PeerPuid), Info.MessageDataSizeBytes);
+		*OSS_REDACT(LexToString(PeerPuid)), Info.MessageDataSizeBytes);
 #endif
 }
 
@@ -519,6 +543,8 @@ void FEOSAntiCheatClient::OnPeerActionRequired(const EOS_AntiCheatCommon_OnClien
 {
 	if (Info.ClientAction != EOS_EAntiCheatCommonClientAction::EOS_ACCCA_RemovePlayer)
 	{
+		UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::OnPeerActionRequired] Ignoring non-RemovePlayer action: %d."),
+			static_cast<int32>(Info.ClientAction));
 		return;
 	}
 
@@ -534,7 +560,7 @@ void FEOSAntiCheatClient::OnPeerActionRequired(const EOS_AntiCheatCommon_OnClien
 	const EOS_ProductUserId PeerPuid = reinterpret_cast<EOS_ProductUserId>(Info.ClientHandle);
 	FUniqueNetIdRef* PeerRef = PeerByProductId.Find(PeerPuid);
 	UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheatClient::OnPeerActionRequired] Peer %s must be removed: %s"),
-		*LexToString(PeerPuid), *Reason);
+		*OSS_REDACT(LexToString(PeerPuid)), *Reason);
 	PeerActionRequiredDelegate.Broadcast(PeerRef ? PeerRef->ToSharedPtr() : FUniqueNetIdPtr(), Reason);
 }
 
@@ -548,7 +574,7 @@ void FEOSAntiCheatClient::OnPeerAuthStatusChanged(const EOS_AntiCheatCommon_OnCl
 	}
 	const EOS_ProductUserId PeerPuid = reinterpret_cast<EOS_ProductUserId>(Info.ClientHandle);
 	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::OnPeerAuthStatusChanged] Peer %s auth status -> %d."),
-		*LexToString(PeerPuid), static_cast<int32>(Info.ClientAuthStatus));
+		*OSS_REDACT(LexToString(PeerPuid)), static_cast<int32>(Info.ClientAuthStatus));
 }
 
 void FEOSAntiCheatClient::OnP2PConnectionRequest(const EOS_P2P_OnIncomingConnectionRequestInfo& Info)
@@ -557,7 +583,7 @@ void FEOSAntiCheatClient::OnP2PConnectionRequest(const EOS_P2P_OnIncomingConnect
 	if (!Info.RemoteUserId || !PeerByProductId.Contains(Info.RemoteUserId))
 	{
 		UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::OnP2PConnectionRequest] Rejected connection from unregistered peer %s."),
-			*LexToString(Info.RemoteUserId));
+			*OSS_REDACT(LexToString(Info.RemoteUserId)));
 		return;
 	}
 
@@ -570,11 +596,11 @@ void FEOSAntiCheatClient::OnP2PConnectionRequest(const EOS_P2P_OnIncomingConnect
 	if (Result != EOS_EResult::EOS_Success)
 	{
 		UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheatClient::OnP2PConnectionRequest] AcceptConnection(%s) failed: %s"),
-			*LexToString(Info.RemoteUserId), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+			*OSS_REDACT(LexToString(Info.RemoteUserId)), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
 		return;
 	}
 	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::OnP2PConnectionRequest] Accepted AC socket from %s."),
-		*LexToString(Info.RemoteUserId));
+		*OSS_REDACT(LexToString(Info.RemoteUserId)));
 }
 
 #endif // P2PMODE

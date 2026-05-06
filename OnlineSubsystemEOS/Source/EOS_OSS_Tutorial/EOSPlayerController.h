@@ -4,18 +4,18 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
-#include "Interfaces/OnlineSessionInterface.h" //Don't like declaring this here but getting weird compiler error with EOnJoinSessionCompleteResult
-#include "OnlineSessionSettings.h"             // FOnlineSessionSearchResult - used by value in TOptional member below.
+#include "Interfaces/OnlineSessionInterface.h"  // Tutorial 5: EOnJoinSessionCompleteResult::Type in HandleJoinSessionCompleted signature (UE enum-namespace pattern can't be forward-declared).
+#include "OnlineSessionSettings.h"              // Tutorial 5: FOnlineSessionSearchResult - used by value in TOptional<...> SessionToJoin member.
 #include "Interfaces/OnlineStoreInterfaceV2.h"  // Tutorial 3: FUniqueOfferId in QueryStoreOffers signatures.
 #include "Interfaces/OnlinePurchaseInterface.h" // Tutorial 3: FPurchaseReceipt + FOnlineError in CheckoutOffer/QueryStoreReceipts signatures.
+#include "Interfaces/OnlinePresenceInterface.h" // Tutorial 6: FOnlineUserPresence - used by TSharedRef in HandlePresenceReceived signature.
 #include "EOSPlayerController.generated.h"
 
 /** New log category for this tutorial. Bump verbosity with `log LogEOSOSSTutorial Verbose` (or VeryVerbose) to see success-path messages. */
 DECLARE_LOG_CATEGORY_EXTERN(LogEOSOSSTutorial, Log, All);
 
-// Forward decl - shared by both modes (P2PMODE=1 also uses IVoiceChatUser via the OSS lobby
-// voice path; see GetActiveVoiceChatUser below). Kept as a forward decl so including this header
-// doesn't pull the voice plugin into every TU that touches AEOSPlayerController.
+// Forward declarations
+class FOnlineSessionSearch;
 class IVoiceChatUser;
 
 #if !P2PMODE
@@ -25,11 +25,8 @@ struct FVoiceChatResult;
 #endif
 
 /**
- * Child class of APlayerController to hold EOS OSS code.
+ * Child class of APlayerController to hold player related OSS code.
  */
-
- //Need to forward declare classes used
-class FOnlineSessionSearch;
 
 UCLASS()
 class EOS_OSS_TUTORIAL_API AEOSPlayerController : public APlayerController
@@ -37,235 +34,232 @@ class EOS_OSS_TUTORIAL_API AEOSPlayerController : public APlayerController
 	GENERATED_BODY()
 
 public:
-	// Class constructor. We won't use this in this tutorial. 
+	// Class constructor. We won't use this in this tutorial.
 	AEOSPlayerController();
 
-	// Load the position of the character from Player Data Storage - Should use USaveGame.
+	// Function to load the position of the character from Player Data Storage. Real games would use a derived USaveGame; this is a pseudo-save example.
 	void LoadGame(const TArray<uint8>& LoadData);
 
-	// Save the position of the character to Player Data Storage - Should use USaveGame.
+	// Function to save the position of the character to Player Data Storage. Real games would use a derived USaveGame; this is a pseudo-save example.
 	void SaveGame();
 
 protected:
+	/* =============== Tutorial 1 - Login ============================= */
+
 	// Function called when play begins.
 	virtual void BeginPlay();
 
-	// Function called when play ends. Used to clear all async-OSS delegate handles so multicast lists
-	// in the OSS interfaces don't retain stale bindings after the controller is destroyed.
+	// Function called when play ends. Used to clear all async-OSS delegate handles so multicast lists in the OSS interfaces don't retain stale bindings after the controller is destroyed.
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	// Function to sign into EOS Game Services.
+	// Function to sign into EOS.
 	void Login();
 
-	// Callback function. This function is ran when signing into EOS Game Services completes. 
+	// Callback function. Ran when signing into EOS completes.
 	void HandleLoginCompleted(int32 LocalUserNum, bool bWasSuccessful, const FUniqueNetId& UserId, const FString& Error);
 
-	// Delegate to bind callback event for login.
+	// Delegate handle for login.
 	FDelegateHandle LoginDelegateHandle;
 
-	// Tutorial 1: Sign out of EOS Game Services. Should be paired with
-	// Login - real games typically logout on sign-out UI / app exit
-	// rather than relying on process termination.
+	// Sign out of EOS. Real games typically logout on sign-out UI and app exit. This project only logs out on app exit.
 	void Logout();
 
-	// Callback function. Ran when logout completes.
+	// Callback function. Ran when signing out of EOS completes.
 	void HandleLogoutCompleted(int32 LocalUserNum, bool bWasSuccessful);
 
 	// Delegate handle for logout.
 	FDelegateHandle LogoutDelegateHandle;
 
+	/* =============== Tutorial 2 - Achievements, Leaderboards and Stats ========================= */
+
+	// Code is in EOSPlayerState and EOS_OSS_TutorialCharacter
+
+	/* =============== Tutorial 3 - Ecom ============================= */
+
+	// Function to query EGS Game Catalog offers.
+	void QueryStoreOffers();
+
+	// Callback function. Ran when QueryStoreOffers completes.
+	void HandleQueryStoreOffersCompleted(bool bWasSuccessful, const TArray<FUniqueOfferId>& OfferIds, const FString& Error);
+
+	// Function to query player receipts (prior purchases). bRestoreReceipts=true forces a backend re-fetch instead of returning OSS's cached list.
+	void QueryStoreReceipts(bool bRestoreReceipts = false);
+
+	// Callback function. Ran when QueryStoreReceipts completes.
+	void HandleQueryStoreReceiptsCompleted(const FOnlineError& Error);
+
+	// Function to open the EGS checkout overlay. Result fires asynchronously when the player closes it. REQUIRES a packaged Win64 client as the EOS overlay isn't available in PIE.
+	void CheckoutOffer(const FString& OfferId, int32 Quantity = 1, bool bConsumable = true);
+
+	// Callback function. Ran when CheckoutOffer completes (overlay closed by the player).
+	void HandleCheckoutCompleted(const FOnlineError& Error, const TSharedRef<FPurchaseReceipt>& Receipt);
+
+	// Function to query player entitlements.
+	void QueryEntitlements();
+
+	// Callback function. Ran when QueryEntitlements completes.
+	void HandleQueryEntitlementsCompleted(bool bWasSuccessful, const FUniqueNetId& UserId, const FString& Namespace, const FString& Error);
+
+	// Delegate handle for QueryEntitlements.
+	FDelegateHandle QueryEntitlementsDelegateHandle;
+
+	// Function to redeem (consume) a granted entitlement, incrementing ConsumedCount on the EOS backend. Should be called on a trusted backend in production. A tampered client could replay this call and have the server grant items free. Recommended pattern: a server RPC that (1) grants the in-game item, then (2) redeems the entitlement.
+	void RedeemEntitlement(const FString& EntitlementId);
+
+	/* =============== Tutorial 4 - Lobbies & P2P ========================= */
+
+	// Code is below in the P2PMode preprocessor guard
+	
+	/* =============== Tutorial 5 - Sessions ============================= */
+
 	// Function to find EOS sessions. Hardcoded attribute key/value pair to keep things simple.
 	void FindSessions(FName SearchKey = "KeyName", FString SearchValue = "KeyValue");
 
-	// Callback function. This function will run when the session is found.
+	// Callback function. Ran when FindSessions completes.
 	void HandleFindSessionsCompleted(bool bWasSuccessful, TSharedRef<FOnlineSessionSearch> Search);
 
-	// Delegate to bind callback event for when sessions are found.
+	// Delegate handle for FindSessions.
 	FDelegateHandle FindSessionsDelegateHandle;
 
-	// This is the connection string for the client to connect to the dedicated server.
+	// Connection string for the client to connect to the dedicated server.
 	FString ConnectString;
 
-	// Stores a *copy* of the chosen search result from the find-sessions callback. It must be a value
-	// (not a pointer into the search-result array): the TSharedRef<FOnlineSessionSearch> that owns
-	// that array is released at the end of HandleFindSessionsCompleted, after which any pointer into
-	// its SearchResults would dangle.
+	// Stores a *copy* of the chosen search result from the find-sessions callback. It must be a value (not a pointer into the search-result array): the TSharedRef<FOnlineSessionSearch> that owns that array is released at the end of HandleFindSessionsCompleted, after which any pointer into its SearchResults would dangle.
 	TOptional<FOnlineSessionSearchResult> SessionToJoin;
 
-	// Function to join the EOS session. 
+	// Function to join the EOS session.
 	void JoinSession();
 
-	// Callback function. This function will run when the session is joined. 
+	// Callback function. Ran when JoinSession completes.
 	void HandleJoinSessionCompleted(FName SessionName, EOnJoinSessionCompleteResult::Type Result);
 
-	// Delegate to bind callback event for join session.
+	// Delegate handle for JoinSession.
 	FDelegateHandle JoinSessionDelegateHandle;
 
-	// Function used to enumerate title file storage files and read the 1st file in the returned list of files. 
+	// Function to send a session/lobby invite.
+	void SendSessionInvite(const FUniqueNetIdRef& Target);
+
+	// Callback function. Ran when an invite the local user accepted (via overlay or TestAcceptLastInvite).
+	void HandleSessionUserInviteAccepted(const bool bWasSuccessful, const int32 ControllerId, FUniqueNetIdPtr UserId, const FOnlineSessionSearchResult& InviteResult);
+
+	// Delegate handle for invite-accepted notifications.
+	FDelegateHandle SessionInviteAcceptedDelegateHandle;
+
+	// Callback function. Ran when an invite to the local user is received from another player.
+	void HandleSessionInviteReceived(const FUniqueNetId& UserId, const FUniqueNetId& FromId, const FString& AppId, const FOnlineSessionSearchResult& InviteResult);
+
+	// Delegate handle for invite-received notifications.
+	FDelegateHandle SessionInviteReceivedDelegateHandle;
+
+	// Cached most-recent received invite. Populated by HandleSessionInviteReceived, consumed by TestAcceptLastInvite. Lets us demo the invite-accept path from the console without relying on the EOS Social Overlay UI.
+	TOptional<FOnlineSessionSearchResult> LastReceivedInvite;
+
+	// Callback function. Ran when IOnlineSession::UpdateSession completes. Shared between Tutorial 5 (server-mode session attribute updates) and Tutorial 4 (P2P lobby attribute / member-attribute updates). Per-call binding; defensively cleared in EndPlay.
+	void HandleUpdateSessionCompleted(FName SessionName, bool bWasSuccessful);
+
+	// Delegate handle for UpdateSession.
+	FDelegateHandle UpdateSessionDelegateHandle;
+
+	/* =============== Tutorial 6 - Presence + Friends + External UI ============================= */
+
+	// Function to publish the local user's rich-text status to EOS Presence. The EOS Social Overlay reads the rich-text/state pair and shows it on friend rows. Layered above the session-attached presence configured in Tutorial 4/5 (the bUsesPresence join-time flip).
+	void SetGamePresence(const FString& StatusText);
+
+	// Callback function. Ran when SetGamePresence completes.
+	void HandleSetPresenceCompleted(const FUniqueNetId& UserId, bool bWasSuccessful);
+
+	// Function to query a remote player's Presence.
+	void QueryPresenceFor(const FUniqueNetIdRef& Target);
+
+	// Callback function. Ran when QueryPresenceFor completes.
+	void HandleQueryPresenceCompleted(const FUniqueNetId& UserId, bool bWasSuccessful);
+
+	// Multicast callback. Fires whenever the SDK pushes a presence update for any user (after a query response, or when a friend's status changes).
+	void HandlePresenceReceived(const FUniqueNetId& UserId, const TSharedRef<FOnlineUserPresence>& Presence);
+
+	// Delegate handle for presence-received notifications.
+	FDelegateHandle PresenceReceivedDelegateHandle;
+
+	// Function to read the local user's friends list. Pairs with Presence (query a friend's PUID for their rich-text status) and UserInfo (resolve PUID -> display name).
+	void ReadFriendsList();
+
+	// Callback function. Ran when ReadFriendsList completes.
+	void HandleReadFriendsListCompleted(int32 LocalUserNum, bool bWasSuccessful, const FString& ListName, const FString& ErrorStr);
+
+	// Multicast callback. Fires when the friends list changes (friend added / removed / blocked / status update).
+	void HandleFriendsChange();
+
+	// Delegate handle for friend-change notifications.
+	FDelegateHandle FriendsChangeDelegateHandle;
+
+	// Function to programmatically open the EOS Social Overlay to the Friends list. NOTE: OSS-EOS only implements ShowFriendsUI; ShowProfileUI / ShowInviteUI are stubbed because the EOS SDK has no equivalent entry points.
+	void ShowFriendsOverlay();
+
+	/* =============== Tutorial 7 - Title + Player Data Storage ============================= */
+
+	// Function to enumerate Title File Storage and read the 1st returned file. Title files are server-authored, read-only.
 	void LoadTitleData();
 
-	// Callback function. This function is ran when retrieving all the files to be enumerated from the EOS backend completes. 
+	// Callback function. Ran when title-file enumeration completes.
 	void HandleEnumTitleFilesCompleted(bool bWasSuccessfull, const FString& Error);
 
-	// Delegate to bind callback event for title file storage file enumeration.
+	// Delegate handle for title-file enumeration.
 	FDelegateHandle EnumTitleFilesDelegateHandle;
 
-	// Callback function. This function is ran when a file has been read and the contents can be retrieved.  
-	void HandleReadTitleFileCompleted(bool bWasSuccessfull, const FString& FileName); 
+	// Callback function. Ran when an individual title file has been read. Bound from HandleEnumTitleFilesCompleted.
+	void HandleReadTitleFileCompleted(bool bWasSuccessfull, const FString& FileName);
 
-	// Delegate to bind callback event for title file storga file read.
+	// Delegate handle for title-file read.
 	FDelegateHandle ReadTitleFileDelegateHandle;
 
-	// Function to write to player data storage - called when player quits and game is saved. FileData is
-	// passed by value because IOnlineUserCloud::WriteUserFile takes it by non-const reference (the OSS
-	// may mutate the buffer during optional compression); giving it our own copy keeps the API clean.
+	// Function to write to Player Data Storage. Called when the player quits and the game is saved.
 	void WritePlayerDataStorage(FString FileName, TArray<uint8> FileData);
-	
-	// Callback function. This function is ran when writing to player data storage completes.
+
+	// Callback function. Ran when WritePlayerDataStorage completes.
 	void HandleWritePlayerDataStorageCompleted(bool bWasSuccessful, const FUniqueNetId& UserId, const FString& FileName);
 
-	// Delegate to bind callback event for title file storage enumeration.
+	// Delegate handle for WritePlayerDataStorage.
 	FDelegateHandle WritePlayerDataStorageDelegateHandle;
 
-	// Function used to enumerate title file storage files and read the 1st file in the returned list of files. 
+	// Function to enumerate the local user's Player Data Storage files and read the 1st returned file.
 	void LoadPlayerData();
 
-	// Callback function. This function is ran when retrieving all the files to be enumerated from the EOS backend completes. 
+	// Callback function. Ran when player-file enumeration completes.
 	void HandleEnumPlayerFilesCompleted(bool bWasSuccessfull, const FUniqueNetId& NetId);
 
-	// Delegate to bind callback event for player file storage enumeration.
+	// Delegate handle for player-file enumeration.
 	FDelegateHandle EnumPlayerFilesDelegateHandle;
 
-	// Callback function. This function is ran when a player data storage file has been read and the contents can be retrieved.
+	// Callback function. Ran when an individual player data file has been read. Bound from HandleEnumPlayerFilesCompleted.
 	void HandleReadPlayerFileCompleted(bool bWasSuccessfull, const FUniqueNetId& UserId, const FString& FileName);
 
-	// Delegate to bind callback event for player data file storage file read.
+	// Delegate handle for player-file read.
 	FDelegateHandle ReadPlayerDataFileDelegateHandle;
 
-	// Tutorial 3 (ecom): EOS Ecom via three OSS interfaces - IOnlineStoreV2
-	// (catalog), IOnlinePurchase (checkout + receipts), IOnlineEntitlements
-	// (per-player entitlement state). Mode-agnostic: the EGS overlay handles
-	// the wallet client-side, so server-mode and P2P builds share the same flow.
-	// Requires bUseNewEcomFlow=True in DefaultEngine.ini's
-	// [/Script/OnlineSubsystemEOS.EOSSettings] section.
+	/* =============== Tutorial 8 - Player Reports ============================= */
 
-	// Query EOS Game Catalog offers.
-	void QueryStoreOffers();
-	void HandleQueryStoreOffersCompleted(bool bWasSuccessful, const TArray<FUniqueOfferId>& OfferIds, const FString& Error);
-
-	// Query player receipts (prior purchases). bRestoreReceipts=true forces a
-	// backend re-fetch instead of returning OSS's cached list.
-	void QueryStoreReceipts(bool bRestoreReceipts = false);
-	void HandleQueryStoreReceiptsCompleted(const FOnlineError& Error);
-
-	// Open the EGS checkout overlay. Result fires asynchronously when the
-	// player closes it. REQUIRES a packaged Win64 client - the EOS overlay
-	// isn't available in PIE.
-	void CheckoutOffer(const FString& OfferId, int32 Quantity = 1, bool bConsumable = true);
-	void HandleCheckoutCompleted(const FOnlineError& Error, const TSharedRef<FPurchaseReceipt>& Receipt);
-
-	// Query player entitlements. IOnlineEntitlements uses the delegate-list
-	// pattern (vs callback-on-call for Store/Purchase) - hence a saved handle.
-	void QueryEntitlements();
-	void HandleQueryEntitlementsCompleted(bool bWasSuccessful, const FUniqueNetId& UserId, const FString& Namespace, const FString& Error);
-	FDelegateHandle QueryEntitlementsDelegateHandle;
-
-	/**
-	 * Redeem (consume) a granted entitlement, incrementing ConsumedCount on the
-	 * EOS backend. Wraps IOnlinePurchase::FinalizeReceiptValidationInfo.
-	 *
-	 * SAFETY: redeem on a trusted backend in production. A tampered client
-	 * could replay this call and have the server grant items free. Recommended
-	 * pattern: a server RPC that (1) grants the in-game item, then (2) redeems
-	 * the entitlement.
-	 */
-	void RedeemEntitlement(const FString& EntitlementId);
-
-	// Tutorial 8: Player Reports. Mode-agnostic - the OSS-EOS public
-	// IOnlinePlayerReportEOS interface is the same on server-mode sessions
-	// and P2P lobbies. Surfaced via Exec command (TestSendPlayerReport)
-	// rather than auto-firing on lobby leave - real games invoke this from
-	// a post-match report UI, never silently on every departure.
+	// Function to send a player report. Surfaced via Exec command (TestSendPlayerReport). Real games invoke this from a post-match report UI, never silently on every departure.
 	void SendPlayerReport(const FUniqueNetIdRef& Reporter, const FUniqueNetIdRef& Reported, const FString& Message, const FString& ContextJson);
 
-	// Tutorial 9: EOS Sanctions - EOS-only interface (no generic OSS
-	// abstraction). Sets bRestrictMatchmaking on RESTRICT_MATCHMAKING
-	// (a standard EOS action; developers can also define custom ones).
+	/* =============== Tutorial 9 - Sanctions ============================= */
+
+	// Function to query the local user's active sanctions. Sets bRestrictMatchmaking on RESTRICT_MATCHMAKING (a standard EOS action; developers can also define custom ones).
 	void GetSanctions(const FUniqueNetId& UserId);
 
 	// Set by GetSanctions; FindSessions early-returns when true.
 	bool bRestrictMatchmaking = false;
 
-	// Submit an appeal for a sanction by ReferenceId. Hardcoded reason -
-	// real games bind a dropdown to EPlayerSanctionAppealReason.
+	// Function to submit an appeal for a sanction by ReferenceId. Hardcoded reason - real games bind a dropdown to EPlayerSanctionAppealReason.
 	void CreateSanctionAppeal(const FUniqueNetId& UserId, FString ReferenceId);
 
-	// Tutorial 5 + 7: Session/lobby invite send + receive. Mode-agnostic
-	// at the OSS layer - same delegates fire for server-mode sessions and
-	// P2P lobbies. Overlay-driven invites land on the same delegates.
-	void SendSessionInvite(const FUniqueNetIdRef& Target);
-
-	void HandleSessionUserInviteAccepted(const bool bWasSuccessful, const int32 ControllerId, FUniqueNetIdPtr UserId, const FOnlineSessionSearchResult& InviteResult);
-	FDelegateHandle SessionInviteAcceptedDelegateHandle;
-
-	void HandleSessionInviteReceived(const FUniqueNetId& UserId, const FUniqueNetId& FromId, const FString& AppId, const FOnlineSessionSearchResult& InviteResult);
-	FDelegateHandle SessionInviteReceivedDelegateHandle;
-
-	// Cached most-recent received invite. Populated by HandleSessionInviteReceived,
-	// consumed by TestAcceptLastInvite. Lets us demo the invite-accept path
-	// from the console without relying on the EOS Social Overlay UI.
-	TOptional<FOnlineSessionSearchResult> LastReceivedInvite;
-
-	// Tutorial 6: EOS Presence - publish the local user's status + rich
-	// text, query other players' presence, react to async updates. The
-	// EOS Social Overlay reads the rich-text/state pair and shows it on
-	// friend rows. This is the layer above the session-attached presence
-	// configured in Tutorial 4/5 (the bUsesPresence join-time flip).
-	void SetGamePresence(const FString& StatusText);
-	void HandleSetPresenceCompleted(const FUniqueNetId& UserId, bool bWasSuccessful);
-
-	void QueryPresenceFor(const FUniqueNetIdRef& Target);
-	void HandleQueryPresenceCompleted(const FUniqueNetId& UserId, bool bWasSuccessful);
-
-	// Multicast - fires whenever the SDK pushes a presence update for any
-	// user (after a query response, or when a friend's status changes).
-	void HandlePresenceReceived(const FUniqueNetId& UserId, const TSharedRef<FOnlineUserPresence>& Presence);
-	FDelegateHandle PresenceReceivedDelegateHandle;
-
-	// Tutorial 5 + 4 + 7: Shared completion handler for any
-	// IOnlineSession::UpdateSession calls (server-mode session attribute
-	// updates and P2P lobby attribute / member-attribute updates all
-	// route through the same OSS API).
-	void HandleUpdateSessionCompleted(FName SessionName, bool bWasSuccessful);
-	FDelegateHandle UpdateSessionDelegateHandle;
-
-	// Tutorial 6: Friends - read the local user's friends list and react
-	// to status changes. Pairs with Presence (query a friend's PUID for
-	// their rich-text status) and UserInfo (resolve PUID -> display name).
-	void ReadFriendsList();
-	void HandleReadFriendsListCompleted(int32 LocalUserNum, bool bWasSuccessful, const FString& ListName, const FString& ErrorStr);
-	void HandleFriendsChange();
-	FDelegateHandle FriendsChangeDelegateHandle;
-
-// Tutorial 6: External UI - programmatically open the EOS Social
-	// Overlay to the Friends list. NOTE: OSS-EOS only implements
-	// ShowFriendsUI; ShowProfileUI / ShowInviteUI are stubbed
-	// ("not implemented") because the EOS SDK has no equivalent
-	// entry points. Other overlay views (profile, invite picker)
-	// are reachable only via user navigation inside the overlay
-	// itself, not from game code.
-	void ShowFriendsOverlay();
-
-	// Manual triggers for the hot paths that can't auto-fire:
-	// checkout would charge the player every launch, redeem would burn through
-	// entitlements every launch, player reports should never fire silently,
-	// sanction appeals need a Dev Portal ReferenceId, session invites need
-	// a target PUID, and invite-accept usually goes through the overlay so
-	// the cached-invite accept is just for testing without overlay UI.
-	// All take an arg (or are no-arg + cache-driven) since their inputs
-	// can't be guessed.
+	/* =============== Test* exec wrappers (in-game console: ~) ============================= */
+	// Manual triggers for the hot paths that can't auto-fire. These are console commands called by pressing the ~ button in-game.
 	//
 	// Usage in the in-game console (`~`):
+	//   TestUnlockAchievement <AchievementId>
+	//     - directly unlocks an achievement on the EOS backend (Tutorial 2);
+	//       use for achievements not driven by a stat threshold. Copy the
+	//       AchievementId from the EOS Dev Portal achievement definition.
 	//   TestCheckoutOffer <OfferId>
 	//   TestRedeemEntitlement <EntitlementId>
 	//   TestSendPlayerReport <Message> [ContextJson]
@@ -295,12 +289,6 @@ protected:
 	//   TestLogout
 	//     - signs the local user out of EOS Game Services. Pairs
 	//       with Login from Tutorial 1.
-	//   (Server-mode session attributes are NOT exposed via Exec - the
-	//    dedicated server has no console, and a client RPC for this
-	//    isn't representative of real games where attribute changes
-	//    are server-driven on gameplay events. See Tutorial 5:
-	//    Phase=Lobby at create, flipped to InProgress on first player
-	//    join in HandleRegisterPlayerCompleted.)
 	//   TestSetLobbyAttribute <Key> <Value>       (P2P only)
 	//     - host updates the lobby's overall Settings map. Joiners
 	//       calling this get an OSS error since they don't own the lobby.
@@ -312,6 +300,9 @@ protected:
 	//   -NoAutoJoin  - skip the post-login auto-find/join chain so the
 	//                  invite path is the only way to enter a session.
 	//                  Pair with TestSendSessionInvite from the host.
+	UFUNCTION(Exec)
+	void TestUnlockAchievement(const FString& AchievementId);
+
 	UFUNCTION(Exec)
 	void TestCheckoutOffer(const FString& OfferId);
 
@@ -327,9 +318,6 @@ protected:
 	UFUNCTION(Exec)
 	void TestSendSessionInvite(const FString& TargetProductUserId);
 
-	// Accept the most recently received invite via the cached InviteResult,
-	// bypassing the EOS Social Overlay accept popup. No-op if no invite has
-	// been received this session.
 	UFUNCTION(Exec)
 	void TestAcceptLastInvite();
 
@@ -355,61 +343,72 @@ protected:
 	void TestSetMyMemberAttribute(const FString& Key, const FString& Value);
 
 public:
-	// RPCs are declared outside the P2PMODE guard because UHT can't see preprocessor
-	// blocks; the _Implementation bodies are #if-guarded in the .cpp instead.
+	/* =============== RPCs ============================= */
+	// Declared outside the mode #if guards because UHT can't see preprocessor blocks; the _Implementation bodies are #if-guarded in the .cpp. These RPCs are used in Tutorial 10 and 11 (code below).
 
-	// Server -> client RPC: per-player EOS RTC room name + participant token + media-server URL.
-	UFUNCTION(Client, Reliable)
-	void Client_ReceiveVoiceCredentials(const FString& RoomName, const FString& ParticipantToken, const FString& ClientBaseUrl);
-
-	// Tutorial 10: client signals load-complete + sends its EOS Connect IdToken for VerifyIdToken.
-	// WithValidation rejects empty / oversize JWTs before the SDK call - the joiner controls this
-	// FString and a misbehaving client could otherwise blast huge strings at the authority.
+	// Tutorial 10: Client -> server RPC. Joiner signals load-complete + sends its EOS Connect IdToken for VerifyIdToken. WithValidation rejects empty / oversize JWTs before the SDK call - the joiner controls this FString and a misbehaving client could otherwise blast huge strings at the authority.
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_NotifyAntiCheatReady(const FString& IdTokenJwt);
 
-	// Tutorial 10: bidirectional opaque EOS AntiCheat byte relay.
+	// Tutorial 10: Client -> server RPC. Opaque EOS AntiCheat byte relay (server-bound).
 	UFUNCTION(Server, Reliable)
 	void Server_AntiCheatMessage(const TArray<uint8>& Bytes);
 
+	// Tutorial 10: Server -> client RPC. Opaque EOS AntiCheat byte relay (client-bound).
 	UFUNCTION(Client, Reliable)
 	void Client_AntiCheatMessage(const TArray<uint8>& Bytes);
 
-	// Tutorial 10 (P2P branch): non-host's violation report - host logs for telemetry only.
+	// Tutorial 10 (P2P branch): Client -> server RPC. Non-host's violation report - host logs for telemetry only (host's own SDK fires independently and does the actual kick).
 	UFUNCTION(Server, Reliable)
 	void Server_PeerViolationDetected(const FUniqueNetIdRepl& OffendingPlayer, const FString& Reason);
 
-protected:
-	// Tutorial 11 (cross-mode voice notification): see banner in the .cpp for full context.
-	/** Mode-aware: explicit user in P2PMODE=0, OSS-managed in P2PMODE=1. */
-	IVoiceChatUser* GetActiveVoiceChatUser() const;
-	/** Idempotent; called from multiple "voice is plausibly ready" hooks. */
-	void BindVoiceChatPlayerTalkingNotification();
-	/** Per-player talking-state callback - logs only. */
-	void HandleVoiceChatPlayerTalkingUpdated(const FString& ChannelName, const FString& PlayerName, bool bIsTalking);
-	bool bVoiceTalkingNotificationBound = false;
-	// OSS-managed IVoiceChatUser outlives this PC (P2PMODE=1 lobby-voice path), so we clear the
-	// binding explicitly in EndPlay rather than relying on AddUObject's GC cleanup.
-	FDelegateHandle VoiceChatPlayerTalkingDelegateHandle;
+	// Tutorial 11: Server -> client RPC. Per-player EOS RTC room name + participant token + media-server URL.
+	UFUNCTION(Client, Reliable)
+	void Client_ReceiveVoiceCredentials(const FString& RoomName, const FString& ParticipantToken, const FString& ClientBaseUrl);
 
-	// Tutorial 10 (cross-mode AC handshake): joiner copies its EOS Connect IdToken and RPCs it
-	// to the authority for VerifyIdToken before RegisterClient (!P2PMODE) / RegisterPeer (P2PMODE).
+protected:
+	/* =============== Tutorial 10 - Anti-cheat (cross-mode handshake) ============================= */
+
+	// Function to copy the joiner's EOS Connect IdToken and RPC it to the authority for VerifyIdToken before RegisterClient (!P2PMODE) / RegisterPeer (P2PMODE).
 	void SendIdTokenForVerification();
+
+	/* =============== Tutorial 11 - Voice (cross-mode speaking-state notification) ============================= */
+
+	// Function to fetch the active IVoiceChatUser. Mode-aware: explicit IVoiceChat::CreateUser one in P2PMODE=0 (member VoiceChatUser); OSS-managed lobby voice user in P2PMODE=1. See banner in the .cpp for full context.
+	IVoiceChatUser* GetActiveVoiceChatUser() const;
+
+	// Function to subscribe HandleVoiceChatPlayerTalkingUpdated to the active user's OnVoiceChatPlayerTalkingUpdated multicast. Idempotent; called from multiple "voice is plausibly ready" hooks.
+	void BindVoiceChatPlayerTalkingNotification();
+
+	// Multicast callback. Fires when any participant's talking state changes - logs only.
+	void HandleVoiceChatPlayerTalkingUpdated(const FString& ChannelName, const FString& PlayerName, bool bIsTalking);
+
+	// Set after BindVoiceChatPlayerTalkingNotification successfully subscribes. Prevents double-binding from the multiple call sites.
+	bool bVoiceTalkingNotificationBound = false;
+
+	// Delegate handle for the speaking-state notification. The OSS-managed IVoiceChatUser outlives this PC (P2PMODE=1 lobby-voice path), so we clear the binding explicitly in EndPlay rather than relying on AddUObject's GC cleanup.
+	FDelegateHandle VoiceChatPlayerTalkingDelegateHandle;
 
 #if !P2PMODE
 protected:
+	/* =============== Tutorial 11 - Voice on server (P2PMODE=0 only) ============================= */
+
 	// Per-session voice-chat opt-in. Checked when the server-issued credentials RPC arrives.
 	bool bVoiceChatEnabled = true;
 
-	// Teardown for the voice session. Chains LeaveChannel -> Logout -> ReleaseUser -> Disconnect. Called from EndPlay.
+	// Function to teardown the voice session. Chains LeaveChannel -> Logout -> ReleaseUser -> Disconnect. Called from EndPlay.
 	void LeaveVoiceChat();
 
-	// Per-step callbacks for the IVoiceChat Connect -> Login -> JoinChannel sequence.
+	// Callback function. Ran when the voice Connect step completes.
 	void HandleVoiceChatConnectComplete(const FVoiceChatResult& Result);
+
+	// Callback function. Ran when the voice Login step completes.
 	void HandleVoiceChatLoginComplete(const FString& InPlayerName, const FVoiceChatResult& Result);
+
+	// Callback function. Ran when the voice JoinChannel step completes.
 	void HandleVoiceChatJoinChannelComplete(const FString& ChannelName, const FVoiceChatResult& Result);
 
-	// Plugin user handle from IVoiceChat::CreateUser(). Shared across Login/Join/Leave/Logout.
+	// Plugin user handle from IVoiceChat::CreateUser(). Shared across Login / Join / Leave / Logout.
 	IVoiceChatUser* VoiceChatUser = nullptr;
 
 	// Credentials received from the server RPC, cached for the async Connect -> Login -> Join chain.
@@ -418,69 +417,81 @@ protected:
 	FString CurrentVoiceClientBaseUrl;
 
 #if ACMODE
-	// Tutorial 10 (anti-cheat client):
-	// Start/stop the plugin's client-side AntiCheat session. Only runs on the local controller.
+	/* =============== Tutorial 10 - Anti-cheat client (P2PMODE=0 + ACMODE=1) ============================= */
+
+	// Function to start the plugin's client-side AntiCheat session. Only runs on the local controller.
 	void BeginAntiCheatClientSession();
+
+	// Function to end the plugin's client-side AntiCheat session.
 	void EndAntiCheatClientSession();
 
-	// Bound to IEOSAntiCheatClient::OnMessageToServer; forwards bytes to the server via Server_AntiCheatMessage.
+	// Callback function. Ran when the SDK has bytes to send to the server. Forwards to Server_AntiCheatMessage.
 	void HandleAntiCheatMessageToServer(const TArray<uint8>& Bytes);
+
+	// Delegate handle for the AC message-to-server notification.
 	FDelegateHandle AntiCheatMessageToServerHandle;
-#endif
-#endif
+#endif // ACMODE
+#endif // !P2PMODE
 
 #if P2PMODE
+	/* =============== Tutorial 4 - Lobbies (P2PMODE=1 only) ============================= */
+
 	// Hardcoded name for the lobby.
 	FName LobbyName = "LobbyName";
-	// Function to create an EOS session.
+
+	// Function to create an EOS lobby.
 	void CreateLobby(FName KeyName = "KeyName", FString KeyValue = "KeyValue");
 
-	// Callback function. This function will run when creating the session completes.
+	// Callback function. Ran when CreateLobby completes.
 	void HandleCreateLobbyCompleted(FName EOSLobbyName, bool bWasSuccessful);
 
-	// Delegate to bind callback event for session creation.
+	// Delegate handle for CreateLobby.
 	FDelegateHandle CreateLobbyDelegateHandle;
 
-	// Function used to setup our listeners to lobby notification events - example on participant change only.
+	// Function to setup our listeners for lobby notification events.
 	void SetupNotifications();
 
-	// Tutorial 4: In UE 5.2+ the single participant-change delegate was split into separate join/leave delegates.
-	// Callback function. This function will run when a lobby participant joins.
+	// Callback function. Ran when a lobby participant joins.
 	void HandleParticipantJoined(FName EOSLobbyName, const FUniqueNetId& NetId);
 
-	// Delegate to bind callback event for participant joined.
+	// Delegate handle for participant-joined notifications.
 	FDelegateHandle ParticipantJoinedDelegateHandle;
 
-	// Callback function. This function will run when a lobby participant leaves. Leave reason indicates why
-	// (e.g. Left, Disconnected, Kicked, Closed) - logging is kept simple here to focus on the OSS flow.
+	// Callback function. Ran when a lobby participant leaves. Leave reason indicates why (e.g. Left, Disconnected, Kicked, Closed) - logging is kept simple here to focus on the OSS flow.
 	void HandleParticipantLeft(FName EOSLobbyName, const FUniqueNetId& NetId, EOnSessionParticipantLeftReason LeaveReason);
 
-	// Delegate to bind callback event for participant left.
+	// Delegate handle for participant-left notifications.
 	FDelegateHandle ParticipantLeftDelegateHandle;
 
-#if ACMODE
-	// Tutorial 10 (P2P branch): EAC PeerToPeer - every peer registers every other peer.
-	// Each SDK fires OnPeerActionRequired independently; lobby host KickPlayers the offender.
-	//
-	// StartAntiCheatPeerSession is the one-shot trigger from HandleLoginCompleted
-	// (after the local NetId resolves). Bind/Unbind are the per-PC delegate hooks
-	// driven from BeginPlay / EndPlay, including the post-travel rebind on joiners.
-	void StartAntiCheatPeerSession();
-	void BindAntiCheatViolationDelegate();
-	void UnbindAntiCheatViolationDelegate();
-	void HandleAntiCheatViolationP2P(const FUniqueNetIdPtr& OffendingPlayer, const FString& Reason);
-	FDelegateHandle AntiCheatViolationDelegateHandle;
-#endif
-
-	// Tutorial 10 (P2P branch): catches participants already in the lobby on join,
-	// which the post-join CopyLobbyData fire populates into MemberSettings.
+	// Callback function. Ran when the lobby's overall Settings map changes (post-join CopyLobbyData populates participants already in the lobby into MemberSettings - without this, late-joiners miss already-present peers).
 	void HandleSessionSettingsUpdated(FName SessionName, const FOnlineSessionSettings& UpdatedSettings);
+
+	// Delegate handle for session-settings-updated notifications.
 	FDelegateHandle SessionSettingsUpdatedDelegateHandle;
 
-	// Tutorial 10 (P2P branch): catches LATER-arriving peers the OSS routes through
-	// SettingsUpdated rather than ParticipantJoined (UpdateOrAddLobbyMember -
-	// !bWasLobbyMemberAdded path). HandleParticipantJoined misses those.
+	// Callback function. Ran when an individual participant's MemberSettings change. Catches LATER-arriving peers the OSS routes through SettingsUpdated rather than ParticipantJoined (UpdateOrAddLobbyMember - !bWasLobbyMemberAdded path).
 	void HandleParticipantSettingsUpdated(FName SessionName, const FUniqueNetId& ParticipantId, const FOnlineSessionSettings& Settings);
+
+	// Delegate handle for participant-settings-updated notifications.
 	FDelegateHandle ParticipantSettingsUpdatedDelegateHandle;
-#endif
+
+#if ACMODE
+	/* =============== Tutorial 10 - Anti-cheat peer (P2PMODE=1 + ACMODE=1) ============================= */
+
+	// Function to start the AntiCheat peer session. One-shot trigger from HandleLoginCompleted (after the local NetId resolves).
+	void StartAntiCheatPeerSession();
+
+	// Function to bind the per-PC violation delegate. Called from BeginPlay including the post-travel rebind on joiners.
+	void BindAntiCheatViolationDelegate();
+
+	// Function to unbind the per-PC violation delegate. Called from EndPlay.
+	void UnbindAntiCheatViolationDelegate();
+
+	// Multicast callback. Fires when the AC SDK reports a violation. Each peer's SDK fires independently; the lobby host KickPlayers the offender.
+	void HandleAntiCheatViolationP2P(const FUniqueNetIdPtr& OffendingPlayer, const FString& Reason);
+
+	// Delegate handle for the AC violation notification.
+	FDelegateHandle AntiCheatViolationDelegateHandle;
+#endif // ACMODE
+#endif // P2PMODE
 };

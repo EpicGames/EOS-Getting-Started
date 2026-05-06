@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "EOSAntiCheatServer.h"
 #include "IEOSAntiCheat.h"
@@ -6,6 +6,7 @@
 #if !P2PMODE
 
 #include "OnlineSubsystemEOSTypesPublic.h"  // IUniqueNetIdEOS - to read ProductUserId off game-side FUniqueNetIds.
+#include "OnlineSubsystemTypes.h"            // OSS_REDACT - <Redacted> in Shipping, full string in dev/debug.
 #include "EOSShared.h"                       // LexToString(EOS_ProductUserId).
 
 #include "eos_anticheatserver.h"
@@ -16,8 +17,10 @@ static FString LexToStringClientAction(EOS_EAntiCheatCommonClientAction Action)
 {
 	switch (Action)
 	{
-	case EOS_EAntiCheatCommonClientAction::EOS_ACCCA_RemovePlayer: return TEXT("RemovePlayer");
-	default:                                                       return FString::Printf(TEXT("Unknown(%d)"), static_cast<int32>(Action));
+		case EOS_EAntiCheatCommonClientAction::EOS_ACCCA_RemovePlayer:
+			return TEXT("RemovePlayer");
+		default:
+			return FString::Printf(TEXT("Unknown(%d)"), static_cast<int32>(Action));
 	}
 }
 
@@ -25,10 +28,14 @@ static FString LexToStringAuthStatus(EOS_EAntiCheatCommonClientAuthStatus Status
 {
 	switch (Status)
 	{
-	case EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_Invalid:            return TEXT("Invalid");
-	case EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_LocalAuthComplete:  return TEXT("LocalAuthComplete");
-	case EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_RemoteAuthComplete: return TEXT("RemoteAuthComplete");
-	default:                                                                  return FString::Printf(TEXT("Unknown(%d)"), static_cast<int32>(Status));
+		case EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_Invalid:
+			return TEXT("Invalid");
+		case EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_LocalAuthComplete:
+			return TEXT("LocalAuthComplete");
+		case EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_RemoteAuthComplete:
+			return TEXT("RemoteAuthComplete");
+		default:
+			return FString::Printf(TEXT("Unknown(%d)"), static_cast<int32>(Status));
 	}
 }
 
@@ -45,21 +52,17 @@ FEOSAntiCheatServer::FEOSAntiCheatServer(EOS_HPlatform InPlatform, FOnAntiCheatV
 	// Notification IDs are interface-handle scoped, not session scoped - bind
 	// once at construction so the SDK has handlers wired the moment any
 	// callback could fire. Handlers gate on bSessionActive where appropriate.
-	{
-		EOS_AntiCheatServer_AddNotifyMessageToClientOptions Opts = {};
-		Opts.ApiVersion = EOS_ANTICHEATSERVER_ADDNOTIFYMESSAGETOCLIENT_API_LATEST;
-		MessageToClientNotifyId = EOS_AntiCheatServer_AddNotifyMessageToClient(Handle, &Opts, this, &FEOSAntiCheatServer::OnMessageToClientStatic);
-	}
-	{
-		EOS_AntiCheatServer_AddNotifyClientActionRequiredOptions Opts = {};
-		Opts.ApiVersion = EOS_ANTICHEATSERVER_ADDNOTIFYCLIENTACTIONREQUIRED_API_LATEST;
-		ClientActionRequiredNotifyId = EOS_AntiCheatServer_AddNotifyClientActionRequired(Handle, &Opts, this, &FEOSAntiCheatServer::OnClientActionRequiredStatic);
-	}
-	{
-		EOS_AntiCheatServer_AddNotifyClientAuthStatusChangedOptions Opts = {};
-		Opts.ApiVersion = EOS_ANTICHEATSERVER_ADDNOTIFYCLIENTAUTHSTATUSCHANGED_API_LATEST;
-		ClientAuthStatusChangedNotifyId = EOS_AntiCheatServer_AddNotifyClientAuthStatusChanged(Handle, &Opts, this, &FEOSAntiCheatServer::OnClientAuthStatusChangedStatic);
-	}
+	EOS_AntiCheatServer_AddNotifyMessageToClientOptions MsgToClientOpts = {};
+	MsgToClientOpts.ApiVersion = EOS_ANTICHEATSERVER_ADDNOTIFYMESSAGETOCLIENT_API_LATEST;
+	MessageToClientNotifyId = EOS_AntiCheatServer_AddNotifyMessageToClient(Handle, &MsgToClientOpts, this, &FEOSAntiCheatServer::OnMessageToClientStatic);
+
+	EOS_AntiCheatServer_AddNotifyClientActionRequiredOptions ClientActionOpts = {};
+	ClientActionOpts.ApiVersion = EOS_ANTICHEATSERVER_ADDNOTIFYCLIENTACTIONREQUIRED_API_LATEST;
+	ClientActionRequiredNotifyId = EOS_AntiCheatServer_AddNotifyClientActionRequired(Handle, &ClientActionOpts, this, &FEOSAntiCheatServer::OnClientActionRequiredStatic);
+
+	EOS_AntiCheatServer_AddNotifyClientAuthStatusChangedOptions ClientAuthStatusOpts = {};
+	ClientAuthStatusOpts.ApiVersion = EOS_ANTICHEATSERVER_ADDNOTIFYCLIENTAUTHSTATUSCHANGED_API_LATEST;
+	ClientAuthStatusChangedNotifyId = EOS_AntiCheatServer_AddNotifyClientAuthStatusChanged(Handle, &ClientAuthStatusOpts, this, &FEOSAntiCheatServer::OnClientAuthStatusChangedStatic);
 }
 
 FEOSAntiCheatServer::~FEOSAntiCheatServer()
@@ -155,13 +158,13 @@ bool FEOSAntiCheatServer::RegisterClient(const FUniqueNetIdRef& PlayerId)
 	const EOS_ProductUserId Puid = EosId.GetProductUserId();
 	if (!EOS_ProductUserId_IsValid(Puid))
 	{
-		UE_LOG(LogEOSAntiCheatPlugin, Error, TEXT("[FEOSAntiCheatServer::RegisterClient] Invalid PUID on PlayerId=%s."), *PlayerId->ToString());
+		UE_LOG(LogEOSAntiCheatPlugin, Error, TEXT("[FEOSAntiCheatServer::RegisterClient] Invalid PUID on PlayerId=%s."), *OSS_REDACT(PlayerId->ToString()));
 		return false;
 	}
 
 	if (Registered.Contains(Puid))
 	{
-		UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheatServer::RegisterClient] PUID %s already registered."), *LexToString(Puid));
+		UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheatServer::RegisterClient] PUID %s already registered."), *OSS_REDACT(LexToString(Puid)));
 		return false;
 	}
 
@@ -171,7 +174,7 @@ bool FEOSAntiCheatServer::RegisterClient(const FUniqueNetIdRef& PlayerId)
 	// Reusing the stable EOS_ProductUserId pointer saves us a parallel handle
 	// pool - the callbacks hand it back and we look the NetId up from Registered.
 	Options.ClientHandle = static_cast<EOS_AntiCheatCommon_ClientHandle>(Puid);
-	Options.ClientType = EOS_EAntiCheatCommonClientType::EOS_ACCCT_ProtectedClient;
+	Options.ClientType = EOS_EAntiCheatCommonClientType::EOS_ACCCT_ProtectedClient; //Console players would be registered as unprotected - Need to confirm they are on console for their EOS_Connect_IdToken
 	Options.ClientPlatform = EOS_EAntiCheatCommonClientPlatform::EOS_ACCCP_Unknown;
 	Options.AccountId_DEPRECATED = nullptr;
 	Options.IpAddress = nullptr; // optional
@@ -181,12 +184,12 @@ bool FEOSAntiCheatServer::RegisterClient(const FUniqueNetIdRef& PlayerId)
 	const EOS_EResult Result = EOS_AntiCheatServer_RegisterClient(Handle, &Options);
 	if (Result != EOS_EResult::EOS_Success)
 	{
-		UE_LOG(LogEOSAntiCheatPlugin, Error, TEXT("[FEOSAntiCheatServer::RegisterClient] RegisterClient failed for %s: %s"), *LexToString(Puid), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+		UE_LOG(LogEOSAntiCheatPlugin, Error, TEXT("[FEOSAntiCheatServer::RegisterClient] RegisterClient failed for %s: %s"), *OSS_REDACT(LexToString(Puid)), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
 		return false;
 	}
 
 	Registered.Add(Puid, PlayerId);
-	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatServer::RegisterClient] Registered %s."), *LexToString(Puid));
+	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatServer::RegisterClient] Registered %s."), *OSS_REDACT(LexToString(Puid)));
 	return true;
 }
 
@@ -210,7 +213,7 @@ void FEOSAntiCheatServer::UnregisterClient(const FUniqueNetIdRef& PlayerId)
 	EOS_AntiCheatServer_UnregisterClient(Handle, &Options);
 
 	Registered.Remove(Puid);
-	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatServer::UnregisterClient] Unregistered %s."), *LexToString(Puid));
+	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatServer::UnregisterClient] Unregistered %s."), *OSS_REDACT(LexToString(Puid)));
 }
 
 void FEOSAntiCheatServer::ReceiveMessageFromClient(const FUniqueNetIdRef& PlayerId, TConstArrayView<uint8> MessageBytes)
@@ -233,11 +236,11 @@ void FEOSAntiCheatServer::ReceiveMessageFromClient(const FUniqueNetIdRef& Player
 	if (Result != EOS_EResult::EOS_Success)
 	{
 		UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheatServer::ReceiveMessageFromClient] %s rejected (%s, %d bytes)."),
-			*LexToString(Puid), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)), MessageBytes.Num());
+			*OSS_REDACT(LexToString(Puid)), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)), MessageBytes.Num());
 	}
 
 #if !UE_BUILD_SHIPPING
-	UE_LOG(LogEOSAntiCheatPlugin, VeryVerbose, TEXT("[FEOSAntiCheatServer::ReceiveMessageFromClient] %s -> server, %d bytes."), *LexToString(Puid), MessageBytes.Num());
+	UE_LOG(LogEOSAntiCheatPlugin, VeryVerbose, TEXT("[FEOSAntiCheatServer::ReceiveMessageFromClient] %s -> server, %d bytes."), *OSS_REDACT(LexToString(Puid)), MessageBytes.Num());
 #endif
 }
 
@@ -279,7 +282,7 @@ void FEOSAntiCheatServer::OnMessageToClient(const EOS_AntiCheatCommon_OnMessageT
 	Bytes.Append(static_cast<const uint8*>(Info.MessageData), static_cast<int32>(Info.MessageDataSizeBytes));
 
 #if !UE_BUILD_SHIPPING
-	UE_LOG(LogEOSAntiCheatPlugin, VeryVerbose, TEXT("[FEOSAntiCheatServer::OnMessageToClient] server -> %s, %d bytes."), *LexToString(Puid), Bytes.Num());
+	UE_LOG(LogEOSAntiCheatPlugin, VeryVerbose, TEXT("[FEOSAntiCheatServer::OnMessageToClient] server -> %s, %d bytes."), *OSS_REDACT(LexToString(Puid)), Bytes.Num());
 #endif
 
 	MessageToClientDelegate.Broadcast(*PlayerIdPtr, Bytes);
@@ -305,7 +308,7 @@ void FEOSAntiCheatServer::OnClientActionRequired(const EOS_AntiCheatCommon_OnCli
 void FEOSAntiCheatServer::OnClientAuthStatusChanged(const EOS_AntiCheatCommon_OnClientAuthStatusChangedCallbackInfo& Info)
 {
 	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatServer::OnClientAuthStatusChanged] %s auth status -> %s."),
-		*LexToString(static_cast<EOS_ProductUserId>(Info.ClientHandle)),
+		*OSS_REDACT(LexToString(static_cast<EOS_ProductUserId>(Info.ClientHandle))),
 		*LexToStringAuthStatus(Info.ClientAuthStatus));
 
 	if (Info.ClientAuthStatus == EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_Invalid)
@@ -321,11 +324,11 @@ void FEOSAntiCheatServer::FlagForKick(EOS_AntiCheatCommon_ClientHandle ClientHan
 	const FUniqueNetIdRef* PlayerIdPtr = Registered.Find(Puid);
 	if (!PlayerIdPtr)
 	{
-		UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheatServer::FlagForKick] Kick requested for unknown PUID %s - ignoring."), *LexToString(Puid));
+		UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheatServer::FlagForKick] Kick requested for unknown PUID %s - ignoring."), *OSS_REDACT(LexToString(Puid)));
 		return;
 	}
 
-	UE_LOG(LogEOSAntiCheatPlugin, Error, TEXT("[FEOSAntiCheatServer::FlagForKick] Player %s flagged: %s"), *(*PlayerIdPtr)->ToString(), *Reason);
+	UE_LOG(LogEOSAntiCheatPlugin, Error, TEXT("[FEOSAntiCheatServer::FlagForKick] Player %s flagged: %s"), *OSS_REDACT((*PlayerIdPtr)->ToString()), *Reason);
 
 	// The plugin only raises the event - the game decides what to do (kick,
 	// ban, log telemetry). AEOSGameSession subscribes and calls KickPlayer.

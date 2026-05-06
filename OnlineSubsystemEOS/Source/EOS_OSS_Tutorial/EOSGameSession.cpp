@@ -30,7 +30,17 @@
 #include "IEOSAntiCheat.h"
 #include "IEOSAntiCheatServer.h"
 #endif
-#endif
+#endif // !P2PMODE (closes the server-only includes block)
+
+// =====================================================================
+// AEOSGameSession is dedicated-server-only - the GameMode only assigns it
+// to GameSessionClass when P2PMODE=0 (see EOS_OSS_TutorialGameMode.cpp).
+// Each function below internally wraps its body in #if !P2PMODE so P2P
+// builds compile only the empty function shells UHT needs for vtable
+// population (constructor + AGameSession virtual overrides). Reading a
+// function in isolation, the inner #if !P2PMODE accurately represents
+// "the whole body is dedicated-server-only", not a per-line mode split.
+// =====================================================================
 
 
 AEOSGameSession::AEOSGameSession()
@@ -40,12 +50,17 @@ AEOSGameSession::AEOSGameSession()
 
 bool AEOSGameSession::ProcessAutoLogin()
 {
+#if !P2PMODE
     // Tutorial 5: Override base function as players need to login before joining the session. We don't want to call AutoLogin on server.
     return true;
+#else
+    return Super::ProcessAutoLogin();
+#endif
 }
 
 FString AEOSGameSession::ApproveLogin(const FString& Options)
 {
+#if !P2PMODE
     if (IsRunningDedicatedServer())
     {
         // Let the base class veto the login first (banned, malformed options, etc.) and propagate that rejection.
@@ -57,20 +72,22 @@ FString AEOSGameSession::ApproveLogin(const FString& Options)
 
         // If the server is full return an error. Catching the error on the client is NOT implemented in this sample.
         // See UCommonSessionSubsystem::Initialize in the Lyra project for an example.
-        //
-        // Note: NumberOfPlayersInSession is incremented in PostLogin (after approval), so under a concurrent-join
-        // burst two approvals could race past `== Max`. Using `>=` keeps the FULL gate closed in that edge case.
+        // Note: NumberOfPlayersInSession is incremented in PostLogin (after approval), so under a concurrent-join burst two approvals could race past `== Max`. Using `>=` keeps the FULL gate closed in that edge case.
         return NumberOfPlayersInSession >= MaxNumberOfPlayersInSession ? "FULL" : "";
     }
     else
     {
         return "";
     }
+#else
+    return Super::ApproveLogin(Options);
+#endif
 }
 
 
 void AEOSGameSession::BeginPlay()
 {
+#if !P2PMODE
     // Tutorial 5: Override base function to create session when running as dedicated server.
     Super::BeginPlay();
 
@@ -79,7 +96,7 @@ void AEOSGameSession::BeginPlay()
         CreateSession("KeyName", "KeyValue"); // Should parametrize Key/Value pair for custom attribute
     }
 
-#if !P2PMODE && ACMODE
+#if ACMODE
     // Tutorial 10: Spin up the AntiCheat server session so it's ready before any
     // players attempt to register. Wire the violation and message-to-client
     // delegates here; we tear them down in EndPlay.
@@ -97,17 +114,17 @@ void AEOSGameSession::BeginPlay()
         }
     }
 #endif
+#endif // !P2PMODE
 }
 
 void AEOSGameSession::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+#if !P2PMODE
     // Tutorial 5: Override base function to destroy session at end of play. Only the dedicated server
     // owns a session (clients join but don't create one here), so skip DestroySession on clients to
     // avoid the spurious failure log that would otherwise fire on every clean client exit.
-#if !P2PMODE && ACMODE
-    // Tutorial 10: Tear down AntiCheat before OSS shutdown. Order matches voice:
-    // plugin-level teardown first, then OSS. Delegate unbinds are unconditional
-    // so stale bindings never outlive this actor.
+#if ACMODE
+    // Tutorial 10: Tear down AntiCheat before OSS shutdown. Order matches voice: plugin-level teardown first, then OSS. Delegate unbinds are unconditional so stale bindings never outlive this actor.
     if (IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get())
     {
         AntiCheat->OnViolation().Remove(AntiCheatViolationDelegateHandle);
@@ -130,20 +147,24 @@ void AEOSGameSession::EndPlay(const EEndPlayReason::Type EndPlayReason)
     {
         DestroySession();
     }
+#endif // !P2PMODE
 }
 
 void AEOSGameSession::PostLogin(APlayerController* NewPlayer)
 {
+#if !P2PMODE
     Super::PostLogin(NewPlayer);
     NumberOfPlayersInSession++; // Keep track of players registered in session
 
     // Tutorial 5: Add code here if you need to do anything else after a player joins the dedicated server.
+#endif
 }
 
 void AEOSGameSession::NotifyLogout(const APlayerController* ExitingPlayer)
 {
+#if !P2PMODE
     // Tutorial 5: Override base function to handle players leaving EOS Session.
-#if !P2PMODE && ACMODE
+#if ACMODE
     // Tutorial 10: Unregister from AntiCheat before OSS unregister so the SDK
     // doesn't continue heartbeating a player that's already gone. Safe to call
     // unconditionally - the plugin no-ops on unknown PUIDs.
@@ -165,8 +186,7 @@ void AEOSGameSession::NotifyLogout(const APlayerController* ExitingPlayer)
 #endif
     Super::NotifyLogout(ExitingPlayer); // This calls UnregisterPlayer
 
-    // When players leave the dedicated server we need to check how many players are left. If 0 players are left,
-    // the session is *ended* here (not destroyed - destruction happens in EndPlay).
+    // When players leave the dedicated server we need to check how many players are left. If 0 players are left, the session is *ended* here (not destroyed - destruction happens in EndPlay).
     if (IsRunningDedicatedServer())
     {
         NumberOfPlayersInSession--; // Keep track of players as they leave
@@ -190,9 +210,8 @@ void AEOSGameSession::NotifyLogout(const APlayerController* ExitingPlayer)
             }
         }
     }
-    // No client-side else branch: ClientTravel tears down the outgoing PC and triggers
-    // NotifyLogout on the client even though the player is *arriving* at a new server, not
-    // leaving. Logging anything here would be misleading.
+    // No client-side else branch: ClientTravel tears down the outgoing PC and triggers NotifyLogout on the client even though the player is *arriving* at a new server, not leaving. Logging anything here would be misleading.
+#endif // !P2PMODE
 }
 
 // =====================================================================
@@ -207,6 +226,7 @@ void AEOSGameSession::NotifyLogout(const APlayerController* ExitingPlayer)
 
 void AEOSGameSession::CreateSession(FName KeyName, FString KeyValue) // Dedicated Server Only
 {
+#if !P2PMODE
     // Tutorial 5: This function will create an EOS Session.
     IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
     IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
@@ -222,19 +242,24 @@ void AEOSGameSession::CreateSession(FName KeyName, FString KeyValue) // Dedicate
 
         // Set session settings.
         TSharedRef<FOnlineSessionSettings> SessionSettings = MakeShared<FOnlineSessionSettings>();
-        SessionSettings->NumPublicConnections = MaxNumberOfPlayersInSession; // We will test our sessions with 2 players to keep things simple.
+        SessionSettings->NumPublicConnections = MaxNumberOfPlayersInSession; // We will test our sessions with 3 players to keep things simple.
         SessionSettings->bShouldAdvertise = true; // Creates a public match that is searchable by clients.
-        // Tutorial 5: Server has no local user, so the SDK rejects bUsesPresence=true
-        // here with EOS_InvalidUser ("bPresenceEnabled requires a valid local user").
-        // Clients flip these client-locally after JoinSession - see HandleJoinSessionCompleted.
-        SessionSettings->bUsesPresence = false;
+        SessionSettings->bUsesPresence = false; // No presence on a dedicated server
         SessionSettings->bAllowJoinViaPresence = false;
         SessionSettings->bAllowJoinViaPresenceFriendsOnly = false;
-        SessionSettings->bAllowInvites = true; // bAllowInvites is fine here - clients send invites for this session.
+        // bAllowInvites=true is required so clients in this session can send
+        // invites for it. The flag is server-authoritative: it propagates to
+        // clients via the search result and is checked client-side at
+        // EOS_Sessions_SendInvite time. The SDK logs a (false-positive)
+        // Warning at CreateSession ("Invites Allowed was enabled on a session
+        // which is not the presence session") because a dedicated server can
+        // never be a presence session by design - no local user, so the SDK
+        // forces bUsesPresence=false.
+        SessionSettings->bAllowInvites = true;
         SessionSettings->bAllowJoinInProgress = false; // Once the session is started, no one can join.
         SessionSettings->bIsDedicated = true; // Session created on dedicated server.
         SessionSettings->bUseLobbiesIfAvailable = false; // This is an EOS Session not an EOS Lobby as they aren't supported on Dedicated Servers.
-        SessionSettings->bUseLobbiesVoiceChatIfAvailable = false;
+        SessionSettings->bUseLobbiesVoiceChatIfAvailable = false; // This is an EOS Session not an EOS Lobby as they aren't supported on Dedicated Servers.
         SessionSettings->bUsesStats = true; // Needed to keep track of player stats.
 
         // This custom attribute will be used in searches on GameClients.
@@ -247,10 +272,8 @@ void AEOSGameSession::CreateSession(FName KeyName, FString KeyValue) // Dedicate
         SessionSettings->Settings.Add(FName(TEXT("Phase")),
             FOnlineSessionSetting(FString(TEXT("Lobby")), EOnlineDataAdvertisementType::ViaOnlineService));
 
-#if !P2PMODE
         // Tutorial 11: EOS RTC room name for this match. Delivered to clients with their voice credentials.
         VoiceRoomName = SessionName.ToString() + TEXT("_Voice");
-#endif
 
         UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::CreateSession] Creating session..."));
 
@@ -265,10 +288,12 @@ void AEOSGameSession::CreateSession(FName KeyName, FString KeyValue) // Dedicate
     {
         UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::CreateSession] Session interface null"));
     }
+#endif // !P2PMODE
 }
 
 void AEOSGameSession::HandleCreateSessionCompleted(FName EOSSessionName, bool bWasSuccessful) // Dedicated Server Only
 {
+#if !P2PMODE
     // Tutorial 5: This function is triggered via the callback we set in CreateSession once the session is created (or there is a failure to create).
     if (bWasSuccessful)
     {
@@ -288,14 +313,18 @@ void AEOSGameSession::HandleCreateSessionCompleted(FName EOSSessionName, bool bW
         Session->ClearOnCreateSessionCompleteDelegate_Handle(CreateSessionDelegateHandle);
         CreateSessionDelegateHandle.Reset();
     }
+#endif // !P2PMODE
 }
 
 void AEOSGameSession::RegisterPlayer(APlayerController* NewPlayer, const FUniqueNetIdRepl& UniqueId, bool bWasFromInvite)
 {
-    // Tutorial 5: Override base function to register player in EOS Session.
+#if !P2PMODE
+    // Tutorial 5: Authoritative server-side EOS Session register. Clients mirror the roster locally via AEOSPlayerState::OnRep_UniqueId.
+
+    // Super sets PlayerId + UniqueId on the PlayerState (triggers OnRep_UniqueId on clients). Don't drop it.
     Super::RegisterPlayer(NewPlayer, UniqueId, bWasFromInvite);
 
-    if (IsRunningDedicatedServer()) // Only run this on the dedicated server.
+    if (IsRunningDedicatedServer())
     {
         IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
         IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
@@ -320,16 +349,17 @@ void AEOSGameSession::RegisterPlayer(APlayerController* NewPlayer, const FUnique
             UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RegisterPlayer] Session interface null"));
         }
     }
+#endif // !P2PMODE
 }
 
 void AEOSGameSession::HandleRegisterPlayerCompleted(FName EOSSessionName, const TArray<FUniqueNetIdRef>& PlayerIds, bool bWasSuccesful)
 {
+#if !P2PMODE
     // Tutorial 5: This function is triggered via the callback we set in RegisterPlayer once the player is registered (or there is a failure).
     if (bWasSuccesful)
     {
         UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::HandleRegisterPlayerCompleted] Player registered in EOS session."));
 
-#if !P2PMODE
         // Tutorial 11: Mint voice credentials for each newly-registered player.
         for (const FUniqueNetIdRef& PlayerId : PlayerIds)
         {
@@ -339,10 +369,9 @@ void AEOSGameSession::HandleRegisterPlayerCompleted(FName EOSSessionName, const 
             }
             else
             {
-                UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSGameSession::HandleRegisterPlayerCompleted] No PlayerController matched PlayerId=%s - voice credentials will not be issued for this player."), *PlayerId->ToString());
+                UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSGameSession::HandleRegisterPlayerCompleted] No PlayerController matched PlayerId=%s - voice credentials will not be issued for this player."), *OSS_REDACT(PlayerId->ToString()));
             }
         }
-#endif
 
         // Tutorial 5: Flip the Phase attribute on the 0->1 transition.
         // Demonstrates server-side session-attribute update in response
@@ -367,7 +396,7 @@ void AEOSGameSession::HandleRegisterPlayerCompleted(FName EOSSessionName, const 
                     UE_LOG(LogEOSOSSTutorial, Verbose,
                         TEXT("[AEOSGameSession::HandleRegisterPlayerCompleted] First player joined - flipping Phase to InProgress."));
 
-                    if (!UpdateSessionInterface->UpdateSession(SessionName, UpdatedSettings, /*bShouldRefreshOnlineData=*/true))
+                    if (!UpdateSessionInterface->UpdateSession(SessionName, UpdatedSettings))
                     {
                         UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::HandleRegisterPlayerCompleted] UpdateSession call failed."));
                         UpdateSessionInterface->ClearOnUpdateSessionCompleteDelegate_Handle(UpdateSessionDelegateHandle);
@@ -395,14 +424,43 @@ void AEOSGameSession::HandleRegisterPlayerCompleted(FName EOSSessionName, const 
         Session->ClearOnRegisterPlayersCompleteDelegate_Handle(RegisterPlayerDelegateHandle);
         RegisterPlayerDelegateHandle.Reset();
     }
+#endif // !P2PMODE
+}
+
+void AEOSGameSession::HandleUpdateSessionCompleted(FName EOSSessionName, bool bWasSuccessful)
+{
+#if !P2PMODE
+    // Tutorial 5: UpdateSession completion. Bound per-call from server-side attribute updates (currently the Phase=InProgress flip on first player join).
+    // Real games would chain in further state-driven updates from the same handler.
+    if (bWasSuccessful)
+    {
+        UE_LOG(LogEOSOSSTutorial, Verbose,
+            TEXT("[AEOSGameSession::HandleUpdateSessionCompleted] UpdateSession succeeded for '%s'."),
+            *EOSSessionName.ToString());
+    }
+    else
+    {
+        UE_LOG(LogEOSOSSTutorial, Error,
+            TEXT("[AEOSGameSession::HandleUpdateSessionCompleted] UpdateSession failed for '%s'."),
+            *EOSSessionName.ToString());
+    }
+
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+    if (Session.IsValid() && UpdateSessionDelegateHandle.IsValid())
+    {
+        Session->ClearOnUpdateSessionCompleteDelegate_Handle(UpdateSessionDelegateHandle);
+        UpdateSessionDelegateHandle.Reset();
+    }
+#endif // !P2PMODE
 }
 
 void AEOSGameSession::UnregisterPlayer(const APlayerController* ExitingPlayer)
 {
-    // Tutorial 5: Override base function to Unregister player in EOS Session.
+#if !P2PMODE
+    // Tutorial 5: Authoritative server-side EOS Session unregister. Clients clear their local mirror in AEOSPlayerState::EndPlay (paired with OnRep_UniqueId).
     Super::UnregisterPlayer(ExitingPlayer);
 
-    // Only need to unregister the player in the EOS Session on the Server.
     if (IsRunningDedicatedServer())
     {
         IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
@@ -436,10 +494,12 @@ void AEOSGameSession::UnregisterPlayer(const APlayerController* ExitingPlayer)
             UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::UnregisterPlayer] Session interface null"));
         }
     }
+#endif // !P2PMODE
 }
 
 void AEOSGameSession::HandleUnregisterPlayerCompleted(FName EOSSessionName, const TArray<FUniqueNetIdRef>& PlayerIds, bool bWasSuccesful)
 {
+#if !P2PMODE
     // Tutorial 5: This function is triggered via the callback we set in UnregisterPlayer once the player is unregistered (or there is a failure).
     if (bWasSuccesful)
     {
@@ -458,10 +518,12 @@ void AEOSGameSession::HandleUnregisterPlayerCompleted(FName EOSSessionName, cons
         Session->ClearOnUnregisterPlayersCompleteDelegate_Handle(UnregisterPlayerDelegateHandle);
         UnregisterPlayerDelegateHandle.Reset();
     }
+#endif // !P2PMODE
 }
 
 void AEOSGameSession::StartSession()
 {
+#if !P2PMODE
     // Tutorial 5: This function is called once all players are registered. It will mark the EOS Session as started.
     IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
     IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
@@ -485,38 +547,12 @@ void AEOSGameSession::StartSession()
     {
         UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::StartSession] Session interface null"));
     }
-}
-
-void AEOSGameSession::HandleUpdateSessionCompleted(FName EOSSessionName, bool bWasSuccessful)
-{
-    // Tutorial 5: UpdateSession completion. Bound per-call from server-side
-    // attribute updates (currently the Phase=InProgress flip on first
-    // player join). Real games would chain in further state-driven
-    // updates from the same handler.
-    if (bWasSuccessful)
-    {
-        UE_LOG(LogEOSOSSTutorial, Verbose,
-            TEXT("[AEOSGameSession::HandleUpdateSessionCompleted] UpdateSession succeeded for '%s'."),
-            *EOSSessionName.ToString());
-    }
-    else
-    {
-        UE_LOG(LogEOSOSSTutorial, Error,
-            TEXT("[AEOSGameSession::HandleUpdateSessionCompleted] UpdateSession failed for '%s'."),
-            *EOSSessionName.ToString());
-    }
-
-    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
-    IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
-    if (Session.IsValid() && UpdateSessionDelegateHandle.IsValid())
-    {
-        Session->ClearOnUpdateSessionCompleteDelegate_Handle(UpdateSessionDelegateHandle);
-        UpdateSessionDelegateHandle.Reset();
-    }
+#endif // !P2PMODE
 }
 
 void AEOSGameSession::HandleStartSessionCompleted(FName EOSSessionName, bool bWasSuccessful)
 {
+#if !P2PMODE
     // Tutorial 5: This function is triggered via the callback we set in StartSession once the session is started (or there is a failure).
     if (bWasSuccessful)
     {
@@ -535,10 +571,12 @@ void AEOSGameSession::HandleStartSessionCompleted(FName EOSSessionName, bool bWa
         Session->ClearOnStartSessionCompleteDelegate_Handle(StartSessionDelegateHandle);
         StartSessionDelegateHandle.Reset();
     }
+#endif // !P2PMODE
 }
 
 void AEOSGameSession::EndSession()
 {
+#if !P2PMODE
     // Tutorial 5: This function is called once all players have left the session. It will mark the EOS Session as ended.
     IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
     IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
@@ -562,10 +600,12 @@ void AEOSGameSession::EndSession()
     {
         UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::EndSession] Session interface null"));
     }
+#endif // !P2PMODE
 }
 
 void AEOSGameSession::HandleEndSessionCompleted(FName EOSSessionName, bool bWasSuccessful)
 {
+#if !P2PMODE
     // Tutorial 5: This function is triggered via the callback we set in EndSession once the session is ended (or there is a failure).
     if (bWasSuccessful)
     {
@@ -584,11 +624,13 @@ void AEOSGameSession::HandleEndSessionCompleted(FName EOSSessionName, bool bWasS
         Session->ClearOnEndSessionCompleteDelegate_Handle(EndSessionDelegateHandle);
         EndSessionDelegateHandle.Reset();
     }
+#endif // !P2PMODE
 }
 
 
 void AEOSGameSession::DestroySession()
 {
+#if !P2PMODE
     // Tutorial 5: Called when EndPlay() is called. This will destroy the EOS Session which will remove it from the EOS backend.
     IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
     IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
@@ -611,10 +653,12 @@ void AEOSGameSession::DestroySession()
     {
         UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::DestroySession] Session interface null"));
     }
+#endif // !P2PMODE
 }
 
 void AEOSGameSession::HandleDestroySessionCompleted(FName EOSSessionName, bool bWasSuccesful)
 {
+#if !P2PMODE
     // Tutorial 5: This function is triggered via the callback we set in DestroySession once the session is destroyed (or there is a failure).
     if (bWasSuccesful)
     {
@@ -634,13 +678,14 @@ void AEOSGameSession::HandleDestroySessionCompleted(FName EOSSessionName, bool b
         Session->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionDelegateHandle);
         DestroySessionDelegateHandle.Reset();
     }
+#endif // !P2PMODE
 }
 
+// Tutorial 11: server-side voice-credentials helper (EOS Voice Web API). Bodies wrapped externally
+// in #if !P2PMODE because the helpers are themselves declared #if !P2PMODE in the header (they pull
+// in HTTP/JSON/EOSSettings, which we don't carry into P2P builds).
 
 #if !P2PMODE
-
-// Tutorial 11: server-side voice-credentials helper (EOS Voice Web API). Shared by the banner
-// block below.
 
 AEOSPlayerController* AEOSGameSession::FindPlayerControllerByNetId(const FUniqueNetIdRef& PlayerId) const
 {
@@ -676,8 +721,8 @@ AEOSPlayerController* AEOSGameSession::FindPlayerControllerByNetId(const FUnique
 // client uses those credentials to JoinChannel against the RTC media
 // server. Dedicated-server-only - the P2PMODE=1 build uses the OSS
 // lobby's auto-managed voice path instead (bUseLobbiesVoiceChatIfAvailable).
-// See EngineBugs.md for the missing-plugin-helper followup that would
-// collapse this Web API plumbing into a single FEOSVoiceChat call.
+// EOSVoiceChat exposes no server-side token-issuance API in 5.8, so we
+// hand-roll the OAuth + createRoomToken HTTP calls below.
 // =====================================================================
 
 void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* TargetPC, const FUniqueNetIdRef& PlayerId)
@@ -698,7 +743,6 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
 
     // Voice Web API wants the bare ProductUserId; FUniqueNetId::ToString returns the composite
     // "<EAS>|<PUID>" form. Type-guard the cast: see EOSPlayerController.cpp's identity-check
-    // comment for why the voice path checks this when nothing else in the tutorial does.
     if (PlayerId->GetType() != EOS_SUBSYSTEM)
     {
         UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer] PlayerId is not an EOS id (type=%s)."), *PlayerId->GetType().ToString());
@@ -708,7 +752,7 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
     const FString TargetPuid = LexToString(EosPlayerId.GetProductUserId());
     if (TargetPuid.IsEmpty())
     {
-        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer] Could not extract ProductUserId from PlayerId=%s"), *PlayerId->ToString());
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer] Could not extract ProductUserId from PlayerId=%s"), *OSS_REDACT(PlayerId->ToString()));
         return;
     }
 
@@ -716,15 +760,15 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
     // callback can detect a destroyed controller (WeakPC.Get() returns null) and bail
     // instead of dereferencing freed memory.
     TWeakObjectPtr<AEOSPlayerController> WeakPC(TargetPC);
-    const FString LocalRoomName   = VoiceRoomName;
-    const FString LocalPuid       = TargetPuid;
-    const FString DeploymentId    = ArtifactSettings.DeploymentId;
+    const FString LocalRoomName = VoiceRoomName;
+    const FString LocalPuid = TargetPuid;
+    const FString DeploymentId = ArtifactSettings.DeploymentId;
 
     // Step 1: OAuth access token (Connect Web API, client_credentials grant). A production
     // title would cache this token and reuse it until expiry (1h) instead of re-authing per player.
     // https://dev.epicgames.com/docs/web-api-ref/connect-web-api#token-request
     const FString BasicAuthRaw = FString::Printf(TEXT("%s:%s"), *ArtifactSettings.ClientId, *ArtifactSettings.ClientSecret);
-    const FString BasicAuth    = FBase64::Encode(BasicAuthRaw);
+    const FString BasicAuth = FBase64::Encode(BasicAuthRaw);
 
     TSharedRef<IHttpRequest> AuthReq = FHttpModule::Get().CreateRequest();
     AuthReq->SetURL(TEXT("https://api.epicgames.dev/auth/v1/oauth/token"));
@@ -734,7 +778,7 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
     AuthReq->SetHeader(TEXT("Accept"), TEXT("application/json"));
     AuthReq->SetContentAsString(FString::Printf(TEXT("grant_type=client_credentials&deployment_id=%s"), *DeploymentId));
 
-    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer] Requesting OAuth token for Voice Web API (player PUID=%s)."), *LocalPuid);
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer] Requesting OAuth token for Voice Web API (player PUID=%s)."), *OSS_REDACT(LocalPuid));
 
     AuthReq->OnProcessRequestComplete().BindLambda(
         [WeakPC, LocalRoomName, LocalPuid, DeploymentId]
@@ -763,7 +807,7 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
             const FString RoomUrl = FString::Printf(TEXT("https://api.epicgames.dev/rtc/v1/%s/room/%s"), *DeploymentId, *LocalRoomName);
             const FString RoomBody = FString::Printf(
                 TEXT("{\"participants\":[{\"puid\":\"%s\",\"hardMuted\":false}]}"),
-                *LocalPuid);
+                *OSS_REDACT(LocalPuid));
 
             TSharedRef<IHttpRequest> RoomReq = FHttpModule::Get().CreateRequest();
             RoomReq->SetURL(RoomUrl);
@@ -788,7 +832,7 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
                     {
                         const int32 Code = RoomResp.IsValid() ? RoomResp->GetResponseCode() : -1;
                         const FString Body = RoomResp.IsValid() ? RoomResp->GetContentAsString() : TEXT("<no response>");
-                        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer createRoomToken] createRoomToken failed (http=%d) for PUID=%s: %s"), Code, *LocalPuid, *Body);
+                        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer createRoomToken] createRoomToken failed (http=%d) for PUID=%s: %s"), Code, *OSS_REDACT(LocalPuid), *Body);
                         return;
                     }
 
@@ -831,6 +875,8 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
     AuthReq->ProcessRequest();
 }
 
+#endif // !P2PMODE (covers Tutorial 11 voice helpers - header-conditional declarations)
+
 // =====================================================================
 // Tutorial 10: Anti-cheat - server-side glue (dedicated server only).
 //
@@ -841,7 +887,7 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
 // implementation.
 // =====================================================================
 
-#if ACMODE
+#if !P2PMODE && ACMODE
 void AEOSGameSession::RegisterAntiCheatClient(const FUniqueNetIdRef& PlayerId)
 {
     if (!IsRunningDedicatedServer())
@@ -871,7 +917,7 @@ void AEOSGameSession::HandleAntiCheatViolation(const FUniqueNetIdPtr& PlayerId, 
     AEOSPlayerController* PC = FindPlayerControllerByNetId(PlayerRef);
     if (!PC)
     {
-        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSGameSession::HandleAntiCheatViolation] No PlayerController for flagged PlayerId=%s - cannot kick."), *PlayerRef->ToString());
+        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSGameSession::HandleAntiCheatViolation] No PlayerController for flagged PlayerId=%s - cannot kick."), *OSS_REDACT(PlayerRef->ToString()));
         return;
     }
 
@@ -889,5 +935,4 @@ void AEOSGameSession::HandleAntiCheatMessageToClient(const FUniqueNetIdRef& Play
     }
     PC->Client_AntiCheatMessage(Bytes);
 }
-#endif // ACMODE
-#endif // !P2PMODE
+#endif // !P2PMODE && ACMODE

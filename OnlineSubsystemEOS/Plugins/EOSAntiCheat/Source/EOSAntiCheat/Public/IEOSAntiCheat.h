@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -7,25 +7,19 @@
 #include "Modules/ModuleInterface.h"
 #include "Online/CoreOnline.h"
 
+// Forward declarations
 #if !P2PMODE
 class IEOSAntiCheatServer;
 #endif
 class IEOSAntiCheatClient;
 
-/**
- * Log category for this plugin's own output. Separate from the EOS SDK's
- * LogEOSSDK / LogEOSAntiCheat* categories so plugin-level events (BeginSession,
- * Register, kick dispatch, violation delegates) are easy to filter without SDK
- * noise. Bump verbosity with `log LogEOSAntiCheatPlugin Verbose` (or
- * `VeryVerbose` for message byte dumps in non-Shipping builds).
- */
+/** New log category for this plugin. Bump verbosity with `log LogEOSAntiCheatPlugin Verbose` (or `VeryVerbose` for message byte dumps in non-Shipping builds). Separate from the EOS SDK's LogEOSSDK / LogEOSAntiCheat* categories so plugin-level events (BeginSession, Register, kick dispatch, violation delegates) are easy to filter without SDK noise. */
 DECLARE_LOG_CATEGORY_EXTERN(LogEOSAntiCheatPlugin, Log, All);
 
-/**
- * Unified violation signal for both modes. Game-thread.
- * PlayerId is null when the LOCAL client was flagged (PEER_SELF in P2P).
- */
+/** Unified violation signal for both modes. Game-thread. PlayerId is null when the LOCAL client was flagged (PEER_SELF in P2P). */
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnAntiCheatViolation, const FUniqueNetIdPtr& /*PlayerId, null = self*/, const FString& /*Reason*/);
+
+/* =============== Tutorial 10 - Anti-Cheat (module-level singleton) ============================= */
 
 /**
  * Module-level singleton that owns the plugin's server-side and client-side
@@ -53,40 +47,24 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FOnAntiCheatViolation, const FUniqueNetIdPt
 class EOSANTICHEAT_API IEOSAntiCheat : public IModuleInterface
 {
 public:
-	/**
-	 * Returns the singleton, or nullptr if the module isn't loaded. Safe to
-	 * call from gameplay code; internally just a LoadModulePtr lookup.
-	 */
+	// Function to get the singleton, or nullptr if the module isn't loaded. Safe to call from gameplay code; internally just a LoadModulePtr lookup.
 	static IEOSAntiCheat* Get();
 
 #if !P2PMODE
-	/** Server-side wrapper, or null if this build / configuration can't host one. */
+	// Function to get the server-side wrapper, or null if this build / configuration can't host one.
 	virtual IEOSAntiCheatServer* GetServer() = 0;
 #endif
 
-	/** Client-side wrapper, or null if this build / configuration can't host one. */
+	// Function to get the client-side wrapper, or null if this build / configuration can't host one.
 	virtual IEOSAntiCheatClient* GetClient() = 0;
 
-	/**
-	 * Fires on the game thread when the server-side AntiCheat interface flags
-	 * and kicks a player. See FOnAntiCheatViolation above for the payload.
-	 */
+	// Multicast accessor. Fires on the game thread when the server-side AntiCheat interface flags and kicks a player. See FOnAntiCheatViolation above for the payload.
 	virtual FOnAntiCheatViolation& OnViolation() = 0;
 
-	/**
-	 * Copy a signed JWT for the local user. The client hands this to the server
-	 * so the server can call VerifyIdToken before trusting the claimed PUID.
-	 * Returns false if the local user isn't Connect-logged-in yet.
-	 */
+	// Function to copy a signed JWT for the local user. The client hands this to the server so the server can call VerifyIdToken before trusting the claimed PUID. Returns false if the local user isn't Connect-logged-in yet.
 	virtual bool CopyLocalIdToken(const FUniqueNetIdRef& LocalUser, FString& OutJsonWebToken) = 0;
 
-	/**
-	 * Async JWT verify, typically called on the server. ClaimedUser is the PUID
-	 * the server believes this client to be (usually the NetConnection's
-	 * FUniqueNetId); the SDK confirms the JWT is a valid signed token for that
-	 * exact PUID. OnCompleted fires on the game thread: bSuccess=true means the
-	 * token is authentic and belongs to ClaimedUser.
-	 */
+	// Function to async-verify a JWT, typically called on the server. ClaimedUser is the PUID the server believes this client to be (usually the NetConnection's FUniqueNetId); the SDK confirms the JWT is a valid signed token for that exact PUID. OnCompleted fires on the game thread: bSuccess=true means the token is authentic and belongs to ClaimedUser.
 	DECLARE_DELEGATE_OneParam(FOnIdTokenVerified, bool /*bSuccess*/);
 	virtual void VerifyIdToken(const FUniqueNetIdRef& ClaimedUser, const FString& JsonWebToken, FOnIdTokenVerified OnCompleted) = 0;
 };

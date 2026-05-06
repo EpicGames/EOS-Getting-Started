@@ -7,6 +7,7 @@
 #include "OnlineSubsystemTypes.h"
 #include "Interfaces/OnlineStatsInterface.h"
 #include "Interfaces/OnlineAchievementsInterface.h"
+#include "OnlineKeyValuePair.h" // FVariantData (FOnlineAchievementsWrite::Properties values).
 #include "Interfaces/OnlineFriendsInterface.h"
 #include "Interfaces/OnlineSessionInterface.h"  // OnRep_UniqueId / EndPlay sync local OSS RegisteredPlayers.
 
@@ -58,7 +59,7 @@ void AEOSPlayerState::OnRep_UniqueId()
 	// OSS-EOS dedupes on RegisteredPlayers (OnlineSessionEOS.cpp:3497) so
 	// duplicate calls are safe (one OSS Log line on dedup, no backend hit).
 	UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerState::OnRep_UniqueId] RegisterPlayer %s in session '%s'."),
-		*Id->ToDebugString(), *ActiveSessionName.ToString());
+		*OSS_REDACT(Id->ToDebugString()), *ActiveSessionName.ToString());
 	Session->RegisterPlayer(ActiveSessionName, *Id, /*bWasInvited=*/ false);
 #endif
 }
@@ -78,7 +79,7 @@ void AEOSPlayerState::EndPlay(const EEndPlayReason::Type EndPlayReason)
 			if (Session.IsValid() && Session->GetNamedSession(ActiveSessionName))
 			{
 				UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerState::EndPlay] UnregisterPlayer %s from session '%s'."),
-					*Id->ToDebugString(), *ActiveSessionName.ToString());
+					*OSS_REDACT(Id->ToDebugString()), *ActiveSessionName.ToString());
 				Session->UnregisterPlayer(ActiveSessionName, *Id);
 			}
 		}
@@ -90,19 +91,26 @@ void AEOSPlayerState::EndPlay(const EEndPlayReason::Type EndPlayReason)
 // =====================================================================
 // Tutorial 2: Achievements, stats, and leaderboards.
 //
-// Three OSS interfaces, all stat-driven:
+// Four OSS entry points exercised here:
 //   - IOnlineStats::UpdateStats: client posts stat deltas to the EOS
 //     backend (e.g. JumpCount++). The EOS achievement system listens
 //     to stat thresholds and unlocks achievements automatically once
-//     thresholds are crossed - no separate UnlockAchievement call.
+//     thresholds are crossed - no separate unlock call needed.
+//   - IOnlineAchievements::WriteAchievements: direct unlock by
+//     achievement ID. Use this for achievements that aren't backed by
+//     a measurable stat (story beats, one-off triggers, hidden ones).
+//     OSS-EOS dispatches this straight to EOS_Achievements_UnlockAchievements
+//     and only reads the *keys* of WriteObject->Properties as IDs - the
+//     stored FVariantData values are ignored.
 //   - IOnlineLeaderboards::ReadLeaderboardsAroundRank: global leaderboard
 //     query, returns top-N or around-local-rank rows.
 //   - IOnlineLeaderboards::ReadLeaderboards (with friend NetId list):
 //     friend-scoped leaderboard. The two-step ReadFriendsList -> build
 //     id array -> ReadLeaderboards flow works around an OSS-EOS crash
-//     in 5.8 ReadLeaderboardsForFriends (see EngineBugs.md item 5).
-// Mode-agnostic. Stats post from UpdateStat (called by gameplay), the
-// leaderboard queries surface via TestQueryLeaderboard* exec commands.
+//     in 5.8 ReadLeaderboardsForFriends - see the workaround note above
+//     QueryLeaderboardFriends below for the underlying assert.
+// Mode-agnostic. Stats post from UpdateStat (called by gameplay); direct
+// unlocks and leaderboard queries surface via Test* exec commands.
 // =====================================================================
 
 void AEOSPlayerState::UpdateStat(FString StatName, int32 StatValue)
@@ -150,6 +158,61 @@ void AEOSPlayerState::UpdateStat(FString StatName, int32 StatValue)
 	else
 	{
 		UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::UpdateStat] Identity and/or Stats interface null"));
+	}
+}
+
+void AEOSPlayerState::UnlockAchievement(FString AchievementId)
+{
+	// This function will directly unlock the named EOS achievement for the
+	// local user (no stat threshold required). Pair with QueryAchievements
+	// in real games to refresh the local cache after the unlock lands.
+	IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+	IOnlineIdentityPtr Identity = Subsystem ? Subsystem->GetIdentityInterface() : nullptr;
+	IOnlineAchievementsPtr Achievements = Subsystem ? Subsystem->GetAchievementsInterface() : nullptr;
+
+	if (Identity.IsValid() && Achievements.IsValid())
+	{
+		// Check if player is logged in before trying to unlock.
+		const FUniqueNetIdPtr LocalNetId = Identity->GetUniquePlayerId(0);
+		if (LocalNetId.IsValid() && Identity->GetLoginStatus(0) == ELoginStatus::Type::LoggedIn)
+		{
+			if (AchievementId.IsEmpty())
+			{
+				UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::UnlockAchievement] AchievementId is empty"));
+				return;
+			}
+
+			// Build the write object. OSS-EOS only inspects the property keys (achievement IDs);
+			// the stored FVariantData value is unused. Multiple keys could be added here to
+			// unlock several achievements in one call.
+			FOnlineAchievementsWriteRef WriteObject = MakeShared<FOnlineAchievementsWrite, ESPMode::ThreadSafe>();
+			WriteObject->Properties.Add(AchievementId, FVariantData());
+
+			Achievements->WriteAchievements(*LocalNetId, WriteObject,
+				FOnAchievementsWrittenDelegate::CreateUObject(this, &ThisClass::HandleUnlockAchievementComplete));
+		}
+		else
+		{
+			UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::UnlockAchievement] Failed - Player logged out"));
+		}
+	}
+	else
+	{
+		UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::UnlockAchievement] Identity and/or Achievements interface null"));
+	}
+}
+
+void AEOSPlayerState::HandleUnlockAchievementComplete(const FUniqueNetId& UserId, const bool bWasSuccessful)
+{
+	if (bWasSuccessful)
+	{
+		UE_LOG(LogEOSOSSTutorial, Log, TEXT("[AEOSPlayerState::HandleUnlockAchievementComplete] Achievement unlock succeeded for %s."),
+			*OSS_REDACT(UserId.ToDebugString()));
+	}
+	else
+	{
+		UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerState::HandleUnlockAchievementComplete] Achievement unlock failed for %s."),
+			*OSS_REDACT(UserId.ToDebugString()));
 	}
 }
 
@@ -320,7 +383,7 @@ void AEOSPlayerState::HandleQueryLeaderboardComplete(bool bWasSuccessful, FOnlin
 			// Partial results from EOS can carry invalid PlayerId entries - guard before dereference.
 			if (Row.PlayerId.IsValid())
 			{
-				UE_LOG(LogEOSOSSTutorial, VeryVerbose, TEXT("[AEOSPlayerState::HandleQueryLeaderboardComplete] Player Id: %s, Rank: %d"), *Row.PlayerId->ToString(), Row.Rank);
+				UE_LOG(LogEOSOSSTutorial, VeryVerbose, TEXT("[AEOSPlayerState::HandleQueryLeaderboardComplete] Player Id: %s, Rank: %d"), *OSS_REDACT(Row.PlayerId->ToString()), Row.Rank);
 			}
 		}
 	}

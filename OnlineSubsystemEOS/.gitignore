@@ -31,3 +31,6 @@ Restricted/
 # This is a public tutorial repo - the file references local engine paths and
 # may contain in-progress engine bug write-ups that aren't ready for upstream.
 EngineBugs.md
+
+# Local-only test plan; references real credentials and machine-specific paths.
+TestPlan.md

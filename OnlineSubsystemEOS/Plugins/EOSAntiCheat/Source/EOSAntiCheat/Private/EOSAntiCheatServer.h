@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -7,9 +7,10 @@
 
 #if !P2PMODE
 
-// Private header so it's fine to pull the SDK umbrella - the public
-// IEOSAntiCheatServer surface stays SDK-free.
+// Private header so it's fine to pull the SDK umbrella - the public surface stays SDK-free.
 #include "eos_sdk.h"
+
+/* =============== Tutorial 10 - Anti-Cheat (server impl) ============================= */
 
 class FEOSAntiCheatServer final : public IEOSAntiCheatServer
 {
@@ -26,27 +27,27 @@ public:
 	virtual FOnMessageToClient& OnMessageToClient() override { return MessageToClientDelegate; }
 
 private:
-	// SDK -> C++ trampolines. Each forwards the call to the instance pointed
-	// to by ClientData (which we set to `this` when binding).
+	// SDK -> C++ trampolines. Each forwards the call to the instance pointed to by ClientData (which we set to `this` when binding).
 	static void EOS_CALL OnMessageToClientStatic(const EOS_AntiCheatCommon_OnMessageToClientCallbackInfo* Data);
 	static void EOS_CALL OnClientActionRequiredStatic(const EOS_AntiCheatCommon_OnClientActionRequiredCallbackInfo* Data);
 	static void EOS_CALL OnClientAuthStatusChangedStatic(const EOS_AntiCheatCommon_OnClientAuthStatusChangedCallbackInfo* Data);
 
-	// Instance handlers invoked from the static trampolines above.
+	// Callback function. Ran when the SDK has bytes to send to a specific client.
 	void OnMessageToClient(const EOS_AntiCheatCommon_OnMessageToClientCallbackInfo& Info);
+
+	// Callback function. Ran when the SDK requests an action against a client (kick, log, etc.).
 	void OnClientActionRequired(const EOS_AntiCheatCommon_OnClientActionRequiredCallbackInfo& Info);
+
+	// Callback function. Ran when a client's auth status changes (registered, authenticated, dropped).
 	void OnClientAuthStatusChanged(const EOS_AntiCheatCommon_OnClientAuthStatusChangedCallbackInfo& Info);
 
-	/** Funnels both violation callbacks into one kick path + OnViolation broadcast. */
+	// Function to funnel both violation callbacks into one kick path + OnViolation broadcast.
 	void FlagForKick(EOS_AntiCheatCommon_ClientHandle ClientHandle, const FString& Reason);
 
 	EOS_HAntiCheatServer Handle = nullptr;
 	bool bSessionActive = false;
 
-	// Maps PUID -> owning NetIdRef. We use the PUID pointer itself as the
-	// ClientHandle value we hand to the SDK (it's already a stable opaque
-	// pointer for the session's lifetime), so the reverse lookup from a
-	// callback's ClientHandle is just this map indexed by PUID.
+	// Maps PUID -> owning NetIdRef. We use the PUID pointer itself as the ClientHandle value we hand to the SDK (it's already a stable opaque pointer for the session's lifetime), so the reverse lookup from a callback's ClientHandle is just this map indexed by PUID.
 	TMap<EOS_ProductUserId, FUniqueNetIdRef> Registered;
 
 	// Notification IDs we need to release in EndSession / dtor.
@@ -54,10 +55,10 @@ private:
 	EOS_NotificationId ClientActionRequiredNotifyId = EOS_INVALID_NOTIFICATIONID;
 	EOS_NotificationId ClientAuthStatusChangedNotifyId = EOS_INVALID_NOTIFICATIONID;
 
+	// Multicast for the SDK's outbound message-to-client stream. Forwarded to subscribers (the game's reliable RPC layer).
 	FOnMessageToClient MessageToClientDelegate;
 
-	// Back-reference to the module-level violation delegate so we can broadcast
-	// from inside our callbacks without a runtime IEOSAntiCheat::Get() lookup.
+	// Back-reference to the module-level violation delegate so we can broadcast from inside our callbacks without a runtime IEOSAntiCheat::Get() lookup.
 	FOnAntiCheatViolation& ViolationDelegate;
 };
 
