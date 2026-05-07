@@ -29,7 +29,7 @@ into an Unreal Engine 5.8 third-person sample.
 | 8 | Player Reports | `EOSPlayerController` |
 | 9 | Sanctions (query + appeal) | `EOSPlayerController` |
 | 10 | Anti-Cheat (server-mode + P2P) | [`Plugins/EOSAntiCheat`](Plugins/EOSAntiCheat/README.md) |
-| 11 | Server-minted RTC voice tokens | `EOSGameSession` + `EOSPlayerController` |
+| 11 | Voice on server | `EOSGameSession` + `EOSPlayerController` |
 
 ## Pick what you need
 
