@@ -27,27 +27,37 @@ For more detailed instructions on using the C# code, refer to the [readme file i
 
 ## Unreal Engine Online Subsystem (OSS) Code
 
-This section contains the source code of an Unreal Engine project built using the **Third Person Feature Pack**. The project demonstrates how to integrate the [Epic Online Services Online Subsystem plugin](https://docs.unrealengine.com/5.1/en-US/online-subsystem-eos-plugin-in-unreal-engine/) into your game. The code corresponds to the course: [The EOS Online Subsystem (OSS) Plugin](https://dev.epicgames.com/community/learning/courses/1px/unreal-engine-online-services-the-eos-online-subsystem-oss-plugin/Lnjn/unreal-engine-online-services-introduction).
+This section contains the source code of an Unreal Engine project built using the **Third Person Feature Pack**. The project demonstrates how to integrate the [Epic Online Services Online Subsystem plugin](https://docs.unrealengine.com/5.8/en-US/online-subsystem-eos-plugin-in-unreal-engine/) into your game. The code corresponds to the course: [The EOS Online Subsystem (OSS) Plugin](https://dev.epicgames.com/community/learning/courses/1px/unreal-engine-the-eos-online-subsystem-oss-plugin/Lnjn/unreal-engine-introduction).
 
-The Unreal Engine code is structured around real-world scenarios and is up to **module 7 - EOS P2P, Lobbies and Voice**. Below is a table listing the modules included in the course.
+> ⚠️ **The project is significantly ahead of the linked course.**
+> The course still walks through the original module-7 snapshot; the
+> repo has since added several modules (Ecom / IAP, Friends / Presence,
+> Player Reports, Sanctions, Anti-Cheat, server-minted voice),
+> reorganized numbering, and upgraded to UE 5.8. See
+> [`OnlineSubsystemEOS/README.md`](OnlineSubsystemEOS/README.md) for
+> full tutorial coverage and the commit anchor that still matches the
+> course step-by-step. A course refresh is planned for **Q3-Q4 2026**.
 
-| Module | Release Date |
-|--------|--------------|
-| Plugin Configuration | Released |
-| Signing-in | Released |
-| Setting up a dedicated server to host EOS Sessions | Released |
-| Joining EOS Session | Released |
-| EOS Stats, Achievements, and Leaderboards | Released |
-| EOS Player and Title Data Storage | Released |
-| EOS P2P, Lobbies, and Voice | Released |
-| Voice on Trusted Server | TBD |
-| Easy Anti-Cheat | TBD |
+| # | Module | Status |
+|---|--------|--------|
+| 0 | Plugin Configuration | Released |
+| 1 | Signing-in | Released |
+| 2 | EOS Stats, Achievements, and Leaderboards | Released |
+| 3 | Ecom: store offers, purchases, entitlements (IAP) | In repo (course refresh pending) |
+| 4 | EOS P2P, Lobbies, and Voice | Released |
+| 5 | EOS Sessions: setup + join (dedicated server) | Released |
+| 6 | Friends, Presence, EOS Social Overlay | In repo (course refresh pending) |
+| 7 | EOS Player and Title Data Storage | Released |
+| 8 | Player Reports | In repo (course refresh pending) |
+| 9 | Sanctions (query + appeal) | In repo (course refresh pending) |
+| 10 | Easy Anti-Cheat | In repo (course refresh pending) |
+| 11 | Voice on Trusted Server | In repo (course refresh pending) |
+
+See [`OnlineSubsystemEOS/README.md`](OnlineSubsystemEOS/README.md) for source-file pointers and "pick what you need" guidance for partial integrations (e.g. Steam-shipping games adding EGS, or fully-online games shipping without backend infrastructure).
 
 ### Important Note
 
-If you're working with EOS P2P, make sure to use **Unreal Engine version 5.3**, which includes EOS SDK version 1.16. If you are using an older version of Unreal Engine, you may need to upgrade the EOS SDK. For guidance, refer to [Upgrading the EOS SDK](https://docs.unrealengine.com/5.2/en-US/upgrading-the-eos-sdk-in-unreal-engine/). 
-
-Older versions of the EOS SDK may be affected by a [WebRTC vulnerability](https://eoshelp.epicgames.com/s/news/eos-news-article-MCVDBTZSVM7VAJHF4ZGJVXZM52I4?language=en_US).
+The project targets **Unreal Engine 5.8**. The EOS SDK shipped with UE 5.8 is current; older UE versions had a [WebRTC vulnerability](https://eoshelp.epicgames.com/s/news/eos-news-article-MCVDBTZSVM7VAJHF4ZGJVXZM52I4?language=en_US) you should avoid.
 
 ## Epic Games Store Mobile
 This section contains the source code of an Unreal Engine project built using the **Third Person Feature Pack**. The project demonstrates how to integrate EOS for a game with in-app purchases to meet minimum requirements for our Epic Games Store Mobile. The code corresponds to the course: [Epic Games Store Mobile -  The Online Subsystem EOS Plugin](Link to Course).
