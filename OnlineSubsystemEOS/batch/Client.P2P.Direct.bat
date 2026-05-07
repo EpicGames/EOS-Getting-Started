@@ -12,7 +12,7 @@ REM on this client, and IEOSAntiCheat::GetClient() returns null, so no peer
 REM handshake ever starts. Every other peer's SDK fires OnPeerActionRequired
 REM with reason=AuthenticationFailed after the timeout.
 REM
-REM Copy to Client.P2P.Direct.local.bat and edit paths + credentials.
+REM Copy to batch/local/Client.P2P.Direct.bat and edit paths + credentials.
 
 cd /d "<Path to packaged Client Binaries\Win64 dir>"
 

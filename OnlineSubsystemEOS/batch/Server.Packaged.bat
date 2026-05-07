@@ -1,7 +1,7 @@
 @echo off
 REM Tutorial 10: Launch the packaged dedicated server.
 REM
-REM Required for end-to-end AntiCheat tests: the editor Server.local.bat path
+REM Required for end-to-end AntiCheat tests: the editor Server.bat path
 REM (UnrealEditor.exe -server) has WITH_EDITOR=1 so the plugin's AntiCheat
 REM code is compiled out. Use this packaged-server path when you want the
 REM server to actually run BeginSession, RegisterClient, and issue kicks.
@@ -15,7 +15,7 @@ REM   RunUAT.bat BuildCookRun -project=<uproject> -noP4 -platform=Win64
 REM       -serverconfig=Development -server -noclient -cook -allmaps -build
 REM       -stage -pak -archive -archivedirectory=<OutputDir>
 REM
-REM Copy this file to Server.Packaged.local.bat and edit the path.
+REM Copy this file to batch/local/Server.Packaged.bat and edit the path.
 
 cd /d "<Path to packaged Server dir>"
 

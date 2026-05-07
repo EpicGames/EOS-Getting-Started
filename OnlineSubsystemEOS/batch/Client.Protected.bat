@@ -12,7 +12,7 @@ REM run - see Plugins/EOSAntiCheat/README.md. Protect places
 REM start_protected_game.exe + EasyAntiCheat/ at the package root (NOT inside
 REM <Project>/Binaries/Win64).
 REM
-REM Copy this file to <name>.Protected.local.bat, edit the path + credentials
+REM Copy this file to batch/local/<same-filename>, edit the path + credentials
 REM for your machine, and run.
 
 REM cd into the package root so UE's ../../../Engine/... relative DLL loads

@@ -14,7 +14,7 @@ REM as an EAC peer via the lobby-join delegate, the SDK handshake completes
 REM (LocalAuthComplete -> RemoteAuthComplete), and the EOS P2P "EOSAntiCheat"
 REM socket carries AC messages alongside (but separately from) NetDriverEOS.
 REM
-REM Copy this file to Client.P2P.Protected.local.bat, edit the path + DevAuth
+REM Copy this file to batch/local/Client.P2P.Protected.bat, edit the path + DevAuth
 REM credential for your machine, and run.
 
 REM cd into the package root so UE's ../../../Engine/... relative DLL loads

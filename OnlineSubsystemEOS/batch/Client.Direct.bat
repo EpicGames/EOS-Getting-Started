@@ -11,7 +11,7 @@ REM     LogEOSSDK: LogEOSAntiCheat: [AntiCheatClient] Anti-cheat client not avai
 REM on the client, and the plugin's GetClient() returns null so no client-side
 REM AntiCheat session is established.
 REM
-REM Copy this file to <name>.Direct.local.bat and edit paths + credentials.
+REM Copy this file to batch/local/<same-filename> and edit paths + credentials.
 
 cd /d "<Path to packaged Client Binaries\Win64 dir>"
 
