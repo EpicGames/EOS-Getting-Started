@@ -8,7 +8,7 @@
 > project has added several new tutorials, reorganized the numbering,
 > upgraded to Unreal Engine 5.8, and picked up bug fixes. To check out
 > the snapshot that still matches the course step-by-step, use commit
-> `<COMMIT-SHA>`. A course refresh covering everything past that
+> `https://github.com/EpicGames/EOS-Getting-Started/commit/e5e2304a07a7f9a879c12be113922cf49f623b91`. A course refresh covering everything past that
 > snapshot is planned for **Q3-Q4 2026**.
 
 The project demonstrates how to integrate the [EOS OSS plugin](https://docs.unrealengine.com/5.1/en-US/online-subsystem-eos-plugin-in-unreal-engine/)
