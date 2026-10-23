@@ -48,7 +48,7 @@ namespace EOSCSharpSample.Services
 
                 ViewModelLocator.Main.StatusBarText = "Requesting user login...";
 
-                // Ensure platform tick is called on an interval, or the following call will never callback.
+                // Ensure platform tick is called on an interval, or the following call will never call back.
                 connectInterface.Login(ref loginOptions, null, (ref LoginCallbackInfo loginCallbackInfo) =>
                 {
                     Debug.WriteLine($"Connect login {loginCallbackInfo.ResultCode}");
