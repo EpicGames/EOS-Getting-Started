@@ -839,9 +839,10 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
             // Step 2: createRoomToken (Voice Web API). Requires `Voice:createRoomToken` policy on the Server client.
             // https://dev.epicgames.com/docs/web-api-ref/voice-web-api#creating-room-tokens
             const FString RoomUrl = FString::Printf(TEXT("https://api.epicgames.dev/rtc/v1/%s/room/%s"), *DeploymentId, *LocalRoomName);
+            // Raw PUID in the request body - OSS_REDACT is for logs only (it yields "<Redacted>" in Shipping).
             const FString RoomBody = FString::Printf(
                 TEXT("{\"participants\":[{\"puid\":\"%s\",\"hardMuted\":false}]}"),
-                *OSS_REDACT(LocalPuid));
+                *LocalPuid);
 
             TSharedRef<IHttpRequest> RoomReq = FHttpModule::Get().CreateRequest();
             RoomReq->SetURL(RoomUrl);
