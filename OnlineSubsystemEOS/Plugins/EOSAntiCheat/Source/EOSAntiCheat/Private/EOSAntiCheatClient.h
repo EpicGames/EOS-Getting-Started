@@ -34,6 +34,7 @@ public:
 	virtual bool RegisterPeer(const FUniqueNetIdRef& PeerUser) override;
 	virtual void UnregisterPeer(const FUniqueNetIdRef& PeerUser) override;
 	virtual FOnPeerActionRequired& OnPeerActionRequired() override { return PeerActionRequiredDelegate; }
+	virtual FOnPeerAuthenticated& OnPeerAuthenticated() override { return PeerAuthenticatedDelegate; }
 #endif
 
 private:
@@ -91,6 +92,9 @@ private:
 
 	// Multicast for SDK-requested peer actions. Forwarded to subscribers (the game's lobby-kick path).
 	FOnPeerActionRequired PeerActionRequiredDelegate;
+
+	// Multicast for peer RemoteAuthComplete. Forwarded to subscribers (the lobby host's gameplay gate).
+	FOnPeerAuthenticated PeerAuthenticatedDelegate;
 
 	EOS_HP2P P2PHandle = nullptr;
 	EOS_ProductUserId LocalPuid = nullptr;

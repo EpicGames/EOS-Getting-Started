@@ -16,6 +16,7 @@
 #include "Interfaces/OnlineIdentityInterface.h"  // CreateUniquePlayerId for verified-PUID remap.
 #include "OnlineSubsystemEOSTypesPublic.h"        // IUniqueNetIdEOS - pulls PUID from caller-supplied FUniqueNetIds.
 #include "EOSShared.h"                             // LexToString(EOS_ProductUserId) + ProductUserIdFromUtf8String.
+#include "EOSSettings.h"                           // UEOSSettings - the running artifact's DeploymentId for the token check.
 
 #include "eos_sdk.h"
 #include "eos_connect.h"                           // EOS_Connect_CopyIdToken, VerifyIdToken.
@@ -162,6 +163,8 @@ bool FEOSAntiCheat::CopyLocalIdToken(const FUniqueNetIdRef& LocalUser, FString& 
 struct FPendingIdTokenVerify
 {
 	IEOSAntiCheat::FOnIdTokenVerified Delegate;
+	EOS_ProductUserId ClaimedPuid = nullptr;
+	FString ExpectedDeploymentId;
 };
 #endif
 
@@ -195,7 +198,11 @@ void FEOSAntiCheat::VerifyIdToken(const FUniqueNetIdRef& ClaimedUser, const FStr
 	Options.ApiVersion = EOS_CONNECT_VERIFYIDTOKEN_API_LATEST;
 	Options.IdToken = &Token;
 
-	auto* Pending = new FPendingIdTokenVerify{ OnCompleted };
+	// The callback also checks the token was issued to this user for this deployment (all artifacts share one).
+	FEOSArtifactSettings ArtifactSettings;
+	const FString ExpectedDeploymentId = UEOSSettings::GetSelectedArtifactSettings(ArtifactSettings) ? ArtifactSettings.DeploymentId : FString();
+
+	auto* Pending = new FPendingIdTokenVerify{ OnCompleted, ClaimedPuid, ExpectedDeploymentId };
 	EOS_Connect_VerifyIdToken(Connect, &Options, Pending, &FEOSAntiCheat::OnVerifyIdTokenStatic);
 #endif
 }
@@ -207,10 +214,20 @@ void EOS_CALL FEOSAntiCheat::OnVerifyIdTokenStatic(const EOS_Connect_VerifyIdTok
 	TUniquePtr<FPendingIdTokenVerify> Pending(static_cast<FPendingIdTokenVerify*>(Data->ClientData));
 	if (!Pending) { return; }
 
-	const bool bSuccess = (Data->ResultCode == EOS_EResult::EOS_Success);
+	bool bSuccess = (Data->ResultCode == EOS_EResult::EOS_Success);
 	if (!bSuccess)
 	{
 		UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheat::OnVerifyIdTokenStatic] VerifyIdToken failed: %s"), ANSI_TO_TCHAR(EOS_EResult_ToString(Data->ResultCode)));
+	}
+	else if (Data->ProductUserId != Pending->ClaimedPuid)
+	{
+		UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheat::OnVerifyIdTokenStatic] Token was issued to a different user - rejecting."));
+		bSuccess = false;
+	}
+	else if (Pending->ExpectedDeploymentId.IsEmpty() || Pending->ExpectedDeploymentId != UTF8_TO_TCHAR(Data->DeploymentId ? Data->DeploymentId : ""))
+	{
+		UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheat::OnVerifyIdTokenStatic] Token deployment doesn't match this game's - rejecting."));
+		bSuccess = false;
 	}
 	Pending->Delegate.ExecuteIfBound(bSuccess);
 }

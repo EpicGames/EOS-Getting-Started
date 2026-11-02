@@ -98,8 +98,8 @@ void AEOSGameSession::BeginPlay()
 
 #if ACMODE
     // Tutorial 10: Spin up the AntiCheat server session so it's ready before any
-    // players attempt to register. Wire the violation and message-to-client
-    // delegates here; we tear them down in EndPlay.
+    // players attempt to register. Wire the violation, message-to-client and
+    // client-authenticated delegates here; we tear them down in EndPlay.
     if (IsRunningDedicatedServer())
     {
         if (IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get())
@@ -109,7 +109,12 @@ void AEOSGameSession::BeginPlay()
             if (IEOSAntiCheatServer* Server = AntiCheat->GetServer())
             {
                 AntiCheatMessageToClientDelegateHandle = Server->OnMessageToClient().AddUObject(this, &ThisClass::HandleAntiCheatMessageToClient);
-                Server->BeginSession();
+                AntiCheatClientAuthenticatedDelegateHandle = Server->OnClientAuthenticated().AddUObject(this, &ThisClass::HandleAntiCheatClientAuthenticated);
+                if (!Server->BeginSession())
+                {
+                    // RegisterClient will fail too, so joiners are kicked rather than playing unprotected.
+                    UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::BeginPlay] AntiCheat server BeginSession failed - joiners will be kicked at registration."));
+                }
             }
         }
     }
@@ -134,6 +139,8 @@ void AEOSGameSession::EndPlay(const EEndPlayReason::Type EndPlayReason)
         {
             Server->OnMessageToClient().Remove(AntiCheatMessageToClientDelegateHandle);
             AntiCheatMessageToClientDelegateHandle.Reset();
+            Server->OnClientAuthenticated().Remove(AntiCheatClientAuthenticatedDelegateHandle);
+            AntiCheatClientAuthenticatedDelegateHandle.Reset();
 
             if (IsRunningDedicatedServer())
             {
@@ -360,7 +367,9 @@ void AEOSGameSession::HandleRegisterPlayerCompleted(FName EOSSessionName, const 
     {
         UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::HandleRegisterPlayerCompleted] Player registered in EOS session."));
 
-        // Tutorial 11: Mint voice credentials for each newly-registered player.
+#if !ACMODE
+        // Tutorial 11: Mint voice credentials for each newly-registered player. With ACMODE=1,
+        // HandleAntiCheatClientAuthenticated does this instead, so only anti-cheat-authenticated players get voice.
         for (const FUniqueNetIdRef& PlayerId : PlayerIds)
         {
             if (AEOSPlayerController* OwningPC = FindPlayerControllerByNetId(PlayerId))
@@ -372,6 +381,7 @@ void AEOSGameSession::HandleRegisterPlayerCompleted(FName EOSSessionName, const 
                 UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSGameSession::HandleRegisterPlayerCompleted] No PlayerController matched PlayerId=%s - voice credentials will not be issued for this player."), *OSS_REDACT(PlayerId->ToString()));
             }
         }
+#endif
 
         // Tutorial 5: Flip the Phase attribute on the 0->1 transition.
         // Demonstrates server-side session-attribute update in response
@@ -725,22 +735,78 @@ AEOSPlayerController* AEOSGameSession::FindPlayerControllerByNetId(const FUnique
 // hand-roll the OAuth + createRoomToken HTTP calls below.
 // =====================================================================
 
-void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* TargetPC, const FUniqueNetIdRef& PlayerId)
+// Function to read the Server artifact's DeploymentId. Every Voice Web API URL is scoped to it.
+// Empty if no artifact is selected (RequestVoiceWebApiAccessToken logs that case).
+static FString GetVoiceDeploymentId()
+{
+    FEOSArtifactSettings ArtifactSettings;
+    return UEOSSettings::GetSelectedArtifactSettings(ArtifactSettings) ? ArtifactSettings.DeploymentId : FString();
+}
+
+void AEOSGameSession::RequestVoiceWebApiAccessToken(TFunction<void(const FString& AccessToken)> OnAccessToken)
 {
     // Resolve the Server artifact (selected via -epicapp=Server). Reading UEOSSettings from game
     // code is unusual - see the include comment at the top of this file for why it's needed here.
     FEOSArtifactSettings ArtifactSettings;
     if (!UEOSSettings::GetSelectedArtifactSettings(ArtifactSettings))
     {
-        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer] No selected EOS artifact - cannot call Voice Web API."));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceWebApiAccessToken] No selected EOS artifact - cannot call Voice Web API."));
         return;
     }
     if (ArtifactSettings.ClientId.IsEmpty() || ArtifactSettings.ClientSecret.IsEmpty() || ArtifactSettings.DeploymentId.IsEmpty())
     {
-        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer] Server artifact is missing credentials - cannot mint voice tokens. Fill in the 'Server' +Artifacts entry in Config/DefaultEngine.ini."));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceWebApiAccessToken] Server artifact is missing credentials - cannot call Voice Web API. Fill in the 'Server' +Artifacts entry in Config/DefaultEngine.ini."));
         return;
     }
 
+    const FString DeploymentId = ArtifactSettings.DeploymentId;
+
+    // OAuth access token (Connect Web API, client_credentials grant). A production title would
+    // cache this token and reuse it until expiry (1h) instead of re-authing per call.
+    // https://dev.epicgames.com/docs/web-api-ref/connect-web-api#token-request
+    const FString BasicAuthRaw = FString::Printf(TEXT("%s:%s"), *ArtifactSettings.ClientId, *ArtifactSettings.ClientSecret);
+    const FString BasicAuth = FBase64::Encode(BasicAuthRaw);
+
+    TSharedRef<IHttpRequest> AuthReq = FHttpModule::Get().CreateRequest();
+    AuthReq->SetURL(TEXT("https://api.epicgames.dev/auth/v1/oauth/token"));
+    AuthReq->SetVerb(TEXT("POST"));
+    AuthReq->SetHeader(TEXT("Authorization"), FString::Printf(TEXT("Basic %s"), *BasicAuth));
+    AuthReq->SetHeader(TEXT("Content-Type"), TEXT("application/x-www-form-urlencoded"));
+    AuthReq->SetHeader(TEXT("Accept"), TEXT("application/json"));
+    AuthReq->SetContentAsString(FString::Printf(TEXT("grant_type=client_credentials&deployment_id=%s"), *DeploymentId));
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::RequestVoiceWebApiAccessToken] Requesting OAuth token for Voice Web API."));
+
+    AuthReq->OnProcessRequestComplete().BindLambda(
+        [OnAccessToken]
+        (FHttpRequestPtr /*AuthReqPtr*/, FHttpResponsePtr AuthResp, bool bAuthOk)
+        {
+            if (!bAuthOk || !AuthResp.IsValid() || AuthResp->GetResponseCode() != 200)
+            {
+                const int32 Code = AuthResp.IsValid() ? AuthResp->GetResponseCode() : -1;
+                const FString Body = AuthResp.IsValid() ? AuthResp->GetContentAsString() : TEXT("<no response>");
+                UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceWebApiAccessToken OAuth] OAuth request failed (http=%d): %s"), Code, *Body);
+                return;
+            }
+
+            // Parse the access_token out of the response body.
+            FString AccessToken;
+            TSharedPtr<FJsonObject> AuthJson;
+            const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(AuthResp->GetContentAsString());
+            if (!FJsonSerializer::Deserialize(Reader, AuthJson) || !AuthJson.IsValid() || !AuthJson->TryGetStringField(TEXT("access_token"), AccessToken) || AccessToken.IsEmpty())
+            {
+                UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceWebApiAccessToken OAuth] OAuth response missing access_token: %s"), *AuthResp->GetContentAsString());
+                return;
+            }
+
+            OnAccessToken(AccessToken);
+        });
+
+    AuthReq->ProcessRequest();
+}
+
+void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* TargetPC, const FUniqueNetIdRef& PlayerId)
+{
     // Voice Web API wants the bare ProductUserId; FUniqueNetId::ToString returns the composite
     // "<EAS>|<PUID>" form. Type-guard the cast: see EOSPlayerController.cpp's identity-check
     if (PlayerId->GetType() != EOS_SUBSYSTEM)
@@ -762,46 +828,14 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
     TWeakObjectPtr<AEOSPlayerController> WeakPC(TargetPC);
     const FString LocalRoomName = VoiceRoomName;
     const FString LocalPuid = TargetPuid;
-    const FString DeploymentId = ArtifactSettings.DeploymentId;
+    const FString DeploymentId = GetVoiceDeploymentId();
 
-    // Step 1: OAuth access token (Connect Web API, client_credentials grant). A production
-    // title would cache this token and reuse it until expiry (1h) instead of re-authing per player.
-    // https://dev.epicgames.com/docs/web-api-ref/connect-web-api#token-request
-    const FString BasicAuthRaw = FString::Printf(TEXT("%s:%s"), *ArtifactSettings.ClientId, *ArtifactSettings.ClientSecret);
-    const FString BasicAuth = FBase64::Encode(BasicAuthRaw);
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer] Requesting voice token (player PUID=%s)."), *OSS_REDACT(LocalPuid));
 
-    TSharedRef<IHttpRequest> AuthReq = FHttpModule::Get().CreateRequest();
-    AuthReq->SetURL(TEXT("https://api.epicgames.dev/auth/v1/oauth/token"));
-    AuthReq->SetVerb(TEXT("POST"));
-    AuthReq->SetHeader(TEXT("Authorization"), FString::Printf(TEXT("Basic %s"), *BasicAuth));
-    AuthReq->SetHeader(TEXT("Content-Type"), TEXT("application/x-www-form-urlencoded"));
-    AuthReq->SetHeader(TEXT("Accept"), TEXT("application/json"));
-    AuthReq->SetContentAsString(FString::Printf(TEXT("grant_type=client_credentials&deployment_id=%s"), *DeploymentId));
-
-    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer] Requesting OAuth token for Voice Web API (player PUID=%s)."), *OSS_REDACT(LocalPuid));
-
-    AuthReq->OnProcessRequestComplete().BindLambda(
-        [WeakPC, LocalRoomName, LocalPuid, DeploymentId]
-        (FHttpRequestPtr /*AuthReqPtr*/, FHttpResponsePtr AuthResp, bool bAuthOk)
+    // Step 1: OAuth access token - see RequestVoiceWebApiAccessToken.
+    RequestVoiceWebApiAccessToken(
+        [WeakPC, LocalRoomName, LocalPuid, DeploymentId](const FString& AccessToken)
         {
-            if (!bAuthOk || !AuthResp.IsValid() || AuthResp->GetResponseCode() != 200)
-            {
-                const int32 Code = AuthResp.IsValid() ? AuthResp->GetResponseCode() : -1;
-                const FString Body = AuthResp.IsValid() ? AuthResp->GetContentAsString() : TEXT("<no response>");
-                UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer OAuth] OAuth request failed (http=%d): %s"), Code, *Body);
-                return;
-            }
-
-            // Parse the access_token out of the response body.
-            FString AccessToken;
-            TSharedPtr<FJsonObject> AuthJson;
-            const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(AuthResp->GetContentAsString());
-            if (!FJsonSerializer::Deserialize(Reader, AuthJson) || !AuthJson.IsValid() || !AuthJson->TryGetStringField(TEXT("access_token"), AccessToken) || AccessToken.IsEmpty())
-            {
-                UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RequestVoiceCredentialsForPlayer OAuth] OAuth response missing access_token: %s"), *AuthResp->GetContentAsString());
-                return;
-            }
-
             // Step 2: createRoomToken (Voice Web API). Requires `Voice:createRoomToken` policy on the Server client.
             // https://dev.epicgames.com/docs/web-api-ref/voice-web-api#creating-room-tokens
             const FString RoomUrl = FString::Printf(TEXT("https://api.epicgames.dev/rtc/v1/%s/room/%s"), *DeploymentId, *LocalRoomName);
@@ -871,8 +905,6 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
 
             RoomReq->ProcessRequest();
         });
-
-    AuthReq->ProcessRequest();
 }
 
 #endif // !P2PMODE (covers Tutorial 11 voice helpers - header-conditional declarations)
@@ -881,27 +913,93 @@ void AEOSGameSession::RequestVoiceCredentialsForPlayer(AEOSPlayerController* Tar
 // Tutorial 10: Anti-cheat - server-side glue (dedicated server only).
 //
 // AC Server interface: RegisterClient (post-VerifyIdToken on the joiner's
-// JWT, see EOSPlayerController::Server_NotifyAntiCheatReady), violation
-// callbacks routed to KickPlayer. Pairs with the AC client-side wiring
-// in EOSPlayerController and the EOSAntiCheat plugin's IEOSAntiCheatServer
-// implementation.
+// JWT, see EOSPlayerController::Server_NotifyAntiCheatReady), then
+// RemoteAuthComplete opens the gameplay gate; violation callbacks route to KickForAntiCheat. Pairs with
+// the AC client-side wiring in EOSPlayerController and the EOSAntiCheat
+// plugin's IEOSAntiCheatServer implementation.
 // =====================================================================
 
 #if !P2PMODE && ACMODE
-void AEOSGameSession::RegisterAntiCheatClient(const FUniqueNetIdRef& PlayerId)
+void AEOSGameSession::RegisterAntiCheatClient(AEOSPlayerController* PC, const FUniqueNetIdRef& PlayerId)
 {
-    if (!IsRunningDedicatedServer())
+    if (!IsRunningDedicatedServer() || !PC)
     {
         return;
     }
 
-    if (IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get())
+    // Fail closed: the SDK can't kick a client it never registered.
+    IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+    IEOSAntiCheatServer* Server = AntiCheat ? AntiCheat->GetServer() : nullptr;
+    if (!Server || !Server->RegisterClient(PlayerId))
     {
-        if (IEOSAntiCheatServer* Server = AntiCheat->GetServer())
-        {
-            Server->RegisterClient(PlayerId);
-        }
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::RegisterAntiCheatClient] RegisterClient failed for %s - kicking."), *OSS_REDACT(PlayerId->ToString()));
+        PC->KickForAntiCheat(TEXT("AntiCheat: RegisterClient failed"));
+        return;
     }
+
+    PC->MarkAntiCheatRegistered();
+}
+
+void AEOSGameSession::HandleAntiCheatClientAuthenticated(const FUniqueNetIdRef& PlayerId)
+{
+    AEOSPlayerController* PC = FindPlayerControllerByNetId(PlayerId);
+    if (!PC)
+    {
+        // Player left before authentication completed.
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::HandleAntiCheatClientAuthenticated] No PlayerController for %s - ignoring."), *OSS_REDACT(PlayerId->ToString()));
+        return;
+    }
+
+    PC->MarkAntiCheatAuthenticated();
+
+    // Tutorial 11: with ACMODE=1, voice credentials are minted here instead of HandleRegisterPlayerCompleted.
+    RequestVoiceCredentialsForPlayer(PC, PlayerId);
+}
+
+void AEOSGameSession::RemovePlayerFromVoiceRoom(const FUniqueNetIdRef& PlayerId)
+{
+    // Server-side voice removal for a client we can't trust to leave on its own. Requires the
+    // `Voice:kick` policy action on the Server client.
+    // https://dev.epicgames.com/docs/web-api-ref/voice-web-api#removing-a-participant
+    if (VoiceRoomName.IsEmpty() || PlayerId->GetType() != EOS_SUBSYSTEM)
+    {
+        return;
+    }
+    const FString TargetPuid = LexToString(static_cast<const IUniqueNetIdEOS&>(*PlayerId).GetProductUserId());
+    if (TargetPuid.IsEmpty())
+    {
+        return;
+    }
+    const FString LocalRoomName = VoiceRoomName;
+    const FString DeploymentId = GetVoiceDeploymentId();
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::RemovePlayerFromVoiceRoom] Removing PUID=%s from voice room '%s'."), *OSS_REDACT(TargetPuid), *LocalRoomName);
+
+    RequestVoiceWebApiAccessToken(
+        [LocalRoomName, TargetPuid, DeploymentId](const FString& AccessToken)
+        {
+            TSharedRef<IHttpRequest> RemoveReq = FHttpModule::Get().CreateRequest();
+            RemoveReq->SetURL(FString::Printf(TEXT("https://api.epicgames.dev/rtc/v1/%s/room/%s/participants/%s"), *DeploymentId, *LocalRoomName, *TargetPuid));
+            RemoveReq->SetVerb(TEXT("DELETE"));
+            RemoveReq->SetHeader(TEXT("Authorization"), FString::Printf(TEXT("Bearer %s"), *AccessToken));
+            RemoveReq->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+
+            RemoveReq->OnProcessRequestComplete().BindLambda(
+                [TargetPuid](FHttpRequestPtr /*RemoveReqPtr*/, FHttpResponsePtr RemoveResp, bool bRemoveOk)
+                {
+                    // 204 on success. An error is expected if the player never joined voice.
+                    const int32 Code = RemoveResp.IsValid() ? RemoveResp->GetResponseCode() : -1;
+                    if (!bRemoveOk || Code != 204)
+                    {
+                        const FString Body = RemoveResp.IsValid() ? RemoveResp->GetContentAsString() : TEXT("<no response>");
+                        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSGameSession::RemovePlayerFromVoiceRoom removeParticipant] removeParticipant failed (http=%d) for PUID=%s: %s"), Code, *OSS_REDACT(TargetPuid), *Body);
+                        return;
+                    }
+                    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSGameSession::RemovePlayerFromVoiceRoom removeParticipant] PUID=%s removed from voice and token revoked."), *OSS_REDACT(TargetPuid));
+                });
+
+            RemoveReq->ProcessRequest();
+        });
 }
 
 void AEOSGameSession::HandleAntiCheatViolation(const FUniqueNetIdPtr& PlayerId, const FString& Reason)
@@ -922,7 +1020,7 @@ void AEOSGameSession::HandleAntiCheatViolation(const FUniqueNetIdPtr& PlayerId, 
     }
 
     UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSGameSession::HandleAntiCheatViolation] Kicking %s: %s"), *PC->GetName(), *Reason);
-    KickPlayer(PC, FText::FromString(Reason));
+    PC->KickForAntiCheat(Reason);
 }
 
 void AEOSGameSession::HandleAntiCheatMessageToClient(const FUniqueNetIdRef& PlayerId, const TArray<uint8>& Bytes)

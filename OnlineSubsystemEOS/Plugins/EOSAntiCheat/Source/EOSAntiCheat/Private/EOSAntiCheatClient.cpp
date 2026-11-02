@@ -559,9 +559,16 @@ void FEOSAntiCheatClient::OnPeerActionRequired(const EOS_AntiCheatCommon_OnClien
 
 	const EOS_ProductUserId PeerPuid = reinterpret_cast<EOS_ProductUserId>(Info.ClientHandle);
 	FUniqueNetIdRef* PeerRef = PeerByProductId.Find(PeerPuid);
+	if (!PeerRef)
+	{
+		// Already unregistered (e.g. left the game). A null broadcast means PEER_SELF, so never send one here.
+		UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheatClient::OnPeerActionRequired] Dropping action for unregistered peer %s: %s"),
+			*OSS_REDACT(LexToString(PeerPuid)), *Reason);
+		return;
+	}
 	UE_LOG(LogEOSAntiCheatPlugin, Warning, TEXT("[FEOSAntiCheatClient::OnPeerActionRequired] Peer %s must be removed: %s"),
 		*OSS_REDACT(LexToString(PeerPuid)), *Reason);
-	PeerActionRequiredDelegate.Broadcast(PeerRef ? PeerRef->ToSharedPtr() : FUniqueNetIdPtr(), Reason);
+	PeerActionRequiredDelegate.Broadcast(PeerRef->ToSharedPtr(), Reason);
 }
 
 void FEOSAntiCheatClient::OnPeerAuthStatusChanged(const EOS_AntiCheatCommon_OnClientAuthStatusChangedCallbackInfo& Info)
@@ -575,6 +582,25 @@ void FEOSAntiCheatClient::OnPeerAuthStatusChanged(const EOS_AntiCheatCommon_OnCl
 	const EOS_ProductUserId PeerPuid = reinterpret_cast<EOS_ProductUserId>(Info.ClientHandle);
 	UE_LOG(LogEOSAntiCheatPlugin, Verbose, TEXT("[FEOSAntiCheatClient::OnPeerAuthStatusChanged] Peer %s auth status -> %d."),
 		*OSS_REDACT(LexToString(PeerPuid)), static_cast<int32>(Info.ClientAuthStatus));
+
+	// Authentication failed: remove the peer, same as FlagForKick on a dedicated server.
+	if (Info.ClientAuthStatus == EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_Invalid)
+	{
+		if (const FUniqueNetIdRef* PeerRef = PeerByProductId.Find(PeerPuid))
+		{
+			PeerActionRequiredDelegate.Broadcast(PeerRef->ToSharedPtr(), TEXT("AntiCheat: auth status Invalid"));
+		}
+		return;
+	}
+
+	// Fully authenticated with the EAC backend. Fires on every peer; only the lobby host acts on it.
+	if (Info.ClientAuthStatus == EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_RemoteAuthComplete)
+	{
+		if (const FUniqueNetIdRef* PeerRef = PeerByProductId.Find(PeerPuid))
+		{
+			PeerAuthenticatedDelegate.Broadcast(*PeerRef);
+		}
+	}
 }
 
 void FEOSAntiCheatClient::OnP2PConnectionRequest(const EOS_P2P_OnIncomingConnectionRequestInfo& Info)

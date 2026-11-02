@@ -129,7 +129,10 @@ protected:
 	// EOS RTC room name for this match. Chosen by the server so every player joins the same room.
 	FString VoiceRoomName;
 
-	// Function to mint a per-player voice token via the EOS Voice Web API and forward it to the owning client through Client_ReceiveVoiceCredentials. Called from HandleRegisterPlayerCompleted.
+	// Function to get an EOS Client Auth access token (Server artifact) for the Voice Web API calls below.
+	void RequestVoiceWebApiAccessToken(TFunction<void(const FString& AccessToken)> OnAccessToken);
+
+	// Function to mint a per-player voice token via the EOS Voice Web API and forward it to the owning client through Client_ReceiveVoiceCredentials. Called from HandleRegisterPlayerCompleted (ACMODE=0) or HandleAntiCheatClientAuthenticated (ACMODE=1).
 	void RequestVoiceCredentialsForPlayer(class AEOSPlayerController* TargetPC, const FUniqueNetIdRef& PlayerId);
 
 	// Function to find the AEOSPlayerController whose PlayerState owns the supplied FUniqueNetId.
@@ -139,11 +142,14 @@ protected:
 	/* =============== Tutorial 10 - Anti-cheat server (P2PMODE=0 + ACMODE=1) ============================= */
 
 public:
-	// Function to register a player with the AntiCheat server. Called from AEOSPlayerController's Server_NotifyAntiCheatReady RPC once the client has finished loading - not before, see the IEOSAntiCheatServer::RegisterClient comment for the heartbeat timeout that kicks in if we register while the client is still blocked.
-	void RegisterAntiCheatClient(const FUniqueNetIdRef& PlayerId);
+	// Function to register a player with the AntiCheat server. Called from AEOSPlayerController's Server_NotifyAntiCheatReady RPC once the client has finished loading - not before, see the IEOSAntiCheatServer::RegisterClient comment for the heartbeat timeout that kicks in if we register while the client is still blocked. On failure kicks; on success the gate waits for HandleAntiCheatClientAuthenticated.
+	void RegisterAntiCheatClient(class AEOSPlayerController* PC, const FUniqueNetIdRef& PlayerId);
+
+	// Function to remove a player from the voice room and revoke their token (Voice Web API removeParticipant). Called from AEOSPlayerController::KickForAntiCheat.
+	void RemovePlayerFromVoiceRoom(const FUniqueNetIdRef& PlayerId);
 
 protected:
-	// Multicast callback. Bound to IEOSAntiCheat::OnViolation. Kicks via AGameSession::KickPlayer. PlayerId null = PEER_SELF (P2P only); never reaches server-mode.
+	// Multicast callback. Bound to IEOSAntiCheat::OnViolation. Kicks via AEOSPlayerController::KickForAntiCheat. PlayerId null = PEER_SELF (P2P only); never reaches server-mode.
 	void HandleAntiCheatViolation(const FUniqueNetIdPtr& PlayerId, const FString& Reason);
 
 	// Delegate handle for the AC violation notification.
@@ -154,6 +160,12 @@ protected:
 
 	// Delegate handle for the AC message-to-client notification.
 	FDelegateHandle AntiCheatMessageToClientDelegateHandle;
+
+	// Multicast callback. Bound to IEOSAntiCheatServer::OnClientAuthenticated (RemoteAuthComplete). Opens the player's gameplay gate and mints voice credentials.
+	void HandleAntiCheatClientAuthenticated(const FUniqueNetIdRef& PlayerId);
+
+	// Delegate handle for the AC client-authenticated notification.
+	FDelegateHandle AntiCheatClientAuthenticatedDelegateHandle;
 #endif // ACMODE
 #endif // !P2PMODE
 };

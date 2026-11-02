@@ -372,6 +372,49 @@ protected:
 	// Function to copy the joiner's EOS Connect IdToken and RPC it to the authority for VerifyIdToken before RegisterClient (!P2PMODE) / RegisterPeer (P2PMODE).
 	void SendIdTokenForVerification();
 
+#if ACMODE
+public:
+	/* =============== Tutorial 10 - Anti-cheat gameplay gate (server-side) ============================= */
+	// Joiners get no pawn until anti-cheat authentication fully completes (RemoteAuthComplete) on the dedicated server or P2P host.
+
+	// Function to check whether this controller is gated. True on the authority for remote joiners; false for the host's own PC and in editor builds.
+	bool ShouldGateOnAntiCheat() const;
+
+	// Engine override. Blocks the spawn and ServerRestartPlayer until MarkAntiCheatAuthenticated.
+	virtual bool CanRestartPlayer() override;
+
+	// Function to start the [EOSAntiCheat] ClientReadyTimeoutSeconds kick timer. Called from the GameMode's PostLogin.
+	void StartAntiCheatReadyTimeout();
+
+	// Function to record a successful RegisterClient / RegisterPeer: swaps the ready timer for the [EOSAntiCheat] ClientAuthTimeoutSeconds backstop.
+	void MarkAntiCheatRegistered();
+
+	// Function to open the gate once EAC reports RemoteAuthComplete: spawns the pawn.
+	void MarkAntiCheatAuthenticated();
+
+	// Function to kick for an anti-cheat reason. Also removes the player from voice (dedicated server) or the lobby (P2P host).
+	void KickForAntiCheat(const FString& Reason);
+
+protected:
+	// Client-side engine override. Logs the kick reason and quits.
+	virtual void ClientWasKicked_Implementation(const FText& KickReason) override;
+
+	// Server-only. Set by MarkAntiCheatRegistered.
+	bool bAntiCheatRegistered = false;
+
+	// Server-only. Set by MarkAntiCheatAuthenticated; opens the gate.
+	bool bAntiCheatAuthenticated = false;
+
+	// Server-only. Ignores repeated Server_NotifyAntiCheatReady RPCs.
+	bool bAntiCheatReadyReceived = false;
+
+	// Server-only. Set by KickForAntiCheat so overlapping kick sources (timeout, verify, SDK) act once.
+	bool bAntiCheatKicked = false;
+
+	// Timer handle for the ready timeout, then the auth backstop.
+	FTimerHandle AntiCheatReadyTimeoutHandle;
+#endif // ACMODE
+
 	/* =============== Tutorial 11 - Voice (cross-mode speaking-state notification) ============================= */
 
 	// Function to fetch the active IVoiceChatUser. Mode-aware: explicit IVoiceChat::CreateUser one in P2PMODE=0 (member VoiceChatUser); OSS-managed lobby voice user in P2PMODE=1. See banner in the .cpp for full context.
@@ -487,11 +530,17 @@ protected:
 	// Function to unbind the per-PC violation delegate. Called from EndPlay.
 	void UnbindAntiCheatViolationDelegate();
 
-	// Multicast callback. Fires when the AC SDK reports a violation. Each peer's SDK fires independently; the lobby host KickPlayers the offender.
+	// Multicast callback. Fires when the AC SDK reports a violation. Each peer's SDK fires independently; the lobby host KickPlayers the offender, and a joiner that flags the host leaves.
 	void HandleAntiCheatViolationP2P(const FUniqueNetIdPtr& OffendingPlayer, const FString& Reason);
 
 	// Delegate handle for the AC violation notification.
 	FDelegateHandle AntiCheatViolationDelegateHandle;
+
+	// Multicast callback. Fires when a peer reaches RemoteAuthComplete; the lobby host opens that joiner's gameplay gate.
+	void HandlePeerAuthenticated(const FUniqueNetIdRef& Peer);
+
+	// Delegate handle for the peer-authenticated notification.
+	FDelegateHandle PeerAuthenticatedDelegateHandle;
 #endif // ACMODE
 #endif // P2PMODE
 };

@@ -31,6 +31,8 @@
 #if ACMODE
 #include "IEOSAntiCheat.h"
 #include "IEOSAntiCheatClient.h"
+#include "TimerManager.h"                    // Tutorial 10: anti-cheat ready timeout (StartAntiCheatReadyTimeout).
+#include "Misc/ConfigCacheIni.h"             // Tutorial 10: GConfig read of [EOSAntiCheat] ClientReadyTimeoutSeconds.
 #endif
 #include "EOSGameSession.h"
 #include "EOSPlayerState.h"                  // Tutorial 2: TestUnlockAchievement -> AEOSPlayerState::UnlockAchievement.
@@ -194,11 +196,35 @@ void AEOSPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
     // continues after EndPlay returns.
     LeaveVoiceChat();
 
-    // Tutorial 10: AC session is plugin-scoped and shuts down with the module, not here.
+#if ACMODE
+    // Tutorial 10: leaving the server ends the client's AC session, matching the server's
+    // UnregisterClient. BeginPlay begins a fresh one, so a rejoin re-authenticates from scratch.
+    if (IsLocalController() && !HasAuthority())
+    {
+        EndAntiCheatClientSession();
+    }
+#endif
 #else
 #if ACMODE
     // Tutorial 10 (P2P branch): clear violation binding. Plugin shutdown handles the AC session itself.
     UnbindAntiCheatViolationDelegate();
+
+    // Tutorial 10 (P2P branch): a joiner leaving the host's game drops its registration of the host,
+    // mirroring the host's Logout unregister. EAC peer auth is a two-way handshake, so both ends must
+    // restart it: on a rejoin, BeginPlay's catch-up walk registers the host again.
+    if (IsLocalController() && !HasAuthority())
+    {
+        IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+        IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+        FNamedOnlineSession* Lobby = Session.IsValid() ? Session->GetNamedSession(LobbyName) : nullptr;
+        IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
+        IEOSAntiCheatClient* AntiCheatClient = AntiCheat ? AntiCheat->GetClient() : nullptr;
+        if (Lobby && Lobby->OwningUserId.IsValid() && AntiCheatClient)
+        {
+            UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::EndPlay] Left the host's game - unregistering the host's anti-cheat peer."));
+            AntiCheatClient->UnregisterPeer(Lobby->OwningUserId.ToSharedRef());
+        }
+    }
 #endif
 #endif
 
@@ -2249,6 +2275,22 @@ void AEOSPlayerController::CreateSanctionAppeal(const FUniqueNetId& UserId, FStr
 #if P2PMODE
 
 #if ACMODE
+// Tutorial 10 (P2P branch): KickPlayer only drops the game connection; also remove the joiner from
+// the lobby (and its voice room) so it can't travel back in. Maps to EOS_Lobby_KickMember (host only).
+static void RemoveFromLobbyForAntiCheat(UWorld* World, FName InLobbyName, const FUniqueNetId& PlayerId)
+{
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(World);
+    IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+    if (!Session.IsValid() || !Session->GetNamedSession(InLobbyName))
+    {
+        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[RemoveFromLobbyForAntiCheat] No lobby '%s' on the host - cannot remove %s."), *InLobbyName.ToString(), *OSS_REDACT(PlayerId.ToString()));
+        return;
+    }
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[RemoveFromLobbyForAntiCheat] Removing %s from lobby '%s'."), *OSS_REDACT(PlayerId.ToString()), *InLobbyName.ToString());
+    Session->RemovePlayerFromSession(0, InLobbyName, PlayerId);
+}
+
 void AEOSPlayerController::StartAntiCheatPeerSession()
 {
     IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
@@ -2287,6 +2329,16 @@ void AEOSPlayerController::BindAntiCheatViolationDelegate()
         AntiCheat->OnViolation().Remove(AntiCheatViolationDelegateHandle);
     }
     AntiCheatViolationDelegateHandle = AntiCheat->OnViolation().AddUObject(this, &ThisClass::HandleAntiCheatViolationP2P);
+
+    // Gameplay gate: the host lets a joiner in once its peer auth reaches RemoteAuthComplete.
+    if (IEOSAntiCheatClient* Client = AntiCheat->GetClient())
+    {
+        if (PeerAuthenticatedDelegateHandle.IsValid())
+        {
+            Client->OnPeerAuthenticated().Remove(PeerAuthenticatedDelegateHandle);
+        }
+        PeerAuthenticatedDelegateHandle = Client->OnPeerAuthenticated().AddUObject(this, &ThisClass::HandlePeerAuthenticated);
+    }
 }
 
 void AEOSPlayerController::UnbindAntiCheatViolationDelegate()
@@ -2296,6 +2348,12 @@ void AEOSPlayerController::UnbindAntiCheatViolationDelegate()
     {
         AntiCheat->OnViolation().Remove(AntiCheatViolationDelegateHandle);
         AntiCheatViolationDelegateHandle.Reset();
+    }
+    IEOSAntiCheatClient* Client = AntiCheat ? AntiCheat->GetClient() : nullptr;
+    if (Client && PeerAuthenticatedDelegateHandle.IsValid())
+    {
+        Client->OnPeerAuthenticated().Remove(PeerAuthenticatedDelegateHandle);
+        PeerAuthenticatedDelegateHandle.Reset();
     }
     // Plugin shutdown calls Client->EndSession(); matches the server-mode lifetime model.
 }
@@ -2320,29 +2378,66 @@ void AEOSPlayerController::HandleAntiCheatViolationP2P(const FUniqueNetIdPtr& Of
     if (Mode == NM_ListenServer)
     {
         // Lobby host has kick authority; offender's own SDK exits via PEER_SELF.
-        AGameModeBase* GM = GetWorld() ? GetWorld()->GetAuthGameMode() : nullptr;
-        AGameSession* GS = GM ? GM->GameSession : nullptr;
-        if (!GS) { return; }
-
         for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
         {
-            APlayerController* PC = It->Get();
+            AEOSPlayerController* PC = Cast<AEOSPlayerController>(It->Get());
             if (PC && PC->PlayerState && PC->PlayerState->GetUniqueId() == *OffendingPlayer)
             {
                 UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleAntiCheatViolationP2P] Host kicking %s: %s"), *PC->GetName(), *Reason);
-                GS->KickPlayer(PC, FText::FromString(Reason));
+                PC->KickForAntiCheat(Reason);
                 return;
             }
         }
-        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSPlayerController::HandleAntiCheatViolationP2P] Host: no PC for %s - offender may have already left."),
+
+        // Not in the game, but may still be in the lobby.
+        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSPlayerController::HandleAntiCheatViolationP2P] Host: no PC for %s - removing from the lobby only."),
             *OffendingPlayer->ToString());
+        RemoveFromLobbyForAntiCheat(GetWorld(), LobbyName, *OffendingPlayer);
         return;
     }
 
-    // Non-host: no kick authority; relay to host for telemetry. Host's SDK does the drop.
+    // Non-host, and our SDK flagged the lobby host itself: the host can't be trusted to act on
+    // its own violation, so leave the lobby and quit (same exit as ClientWasKicked).
+    IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld());
+    IOnlineSessionPtr Session = Subsystem ? Subsystem->GetSessionInterface() : nullptr;
+    FNamedOnlineSession* Lobby = Session.IsValid() ? Session->GetNamedSession(LobbyName) : nullptr;
+    if (Lobby && Lobby->OwningUserId.IsValid() && *Lobby->OwningUserId == *OffendingPlayer)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::HandleAntiCheatViolationP2P] Lobby host %s flagged by our anti-cheat: %s - leaving the lobby and quitting."),
+            *OffendingPlayer->ToString(), *Reason);
+        Session->DestroySession(LobbyName, FOnDestroySessionCompleteDelegate::CreateWeakLambda(this, [this](FName /*SessionName*/, bool /*bWasSuccessful*/)
+            {
+                ConsoleCommand(TEXT("quit"));
+            }));
+        return;
+    }
+
+    // Non-host, another joiner flagged: no kick authority; relay to host for telemetry. Host's SDK does the drop.
     UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSPlayerController::HandleAntiCheatViolationP2P] Peer violation observed on %s: %s"),
         *OffendingPlayer->ToString(), *Reason);
     Server_PeerViolationDetected(FUniqueNetIdRepl(OffendingPlayer), Reason);
+}
+
+void AEOSPlayerController::HandlePeerAuthenticated(const FUniqueNetIdRef& Peer)
+{
+    // Only the host gates gameplay; other peers just log the auth status (plugin side).
+    if (GetNetMode() != NM_ListenServer)
+    {
+        return;
+    }
+
+    for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+    {
+        AEOSPlayerController* PC = Cast<AEOSPlayerController>(It->Get());
+        if (PC && PC->PlayerState && PC->PlayerState->GetUniqueId() == *Peer)
+        {
+            PC->MarkAntiCheatAuthenticated();
+            return;
+        }
+    }
+
+    // The joiner left before authentication completed.
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::HandlePeerAuthenticated] No PC for %s - ignoring."), *OSS_REDACT(Peer->ToString()));
 }
 #endif // ACMODE
 
@@ -2530,9 +2625,27 @@ void AEOSPlayerController::Server_NotifyAntiCheatReady_Implementation(const FStr
 #if ACMODE
     // Verify the joiner's JWT before trusting the PUID for RegisterClient (!P2PMODE) /
     // RegisterPeer (P2PMODE). Single VerifyIdToken callsite for both modes.
-    if (!PlayerState) { return; }
+
+    // Tutorial 10: one handshake per connection; a second verify would fail RegisterClient.
+    if (bAntiCheatReadyReceived)
+    {
+        UE_LOG(LogEOSOSSTutorial, Warning, TEXT("[AEOSPlayerController::Server_NotifyAntiCheatReady] Duplicate ready RPC from %s - ignoring."), *GetName());
+        return;
+    }
+    bAntiCheatReadyReceived = true;
+
+    // Early-outs below leave the joiner unregistered; the ready timeout kicks them.
+    if (!PlayerState)
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Server_NotifyAntiCheatReady] No PlayerState on %s - cannot verify; ready timeout will kick."), *GetName());
+        return;
+    }
     FUniqueNetIdPtr ClaimedNetIdPtr = PlayerState->GetUniqueId().GetUniqueNetId();
-    if (!ClaimedNetIdPtr.IsValid()) { return; }
+    if (!ClaimedNetIdPtr.IsValid())
+    {
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Server_NotifyAntiCheatReady] No NetId on %s - cannot verify; ready timeout will kick."), *GetName());
+        return;
+    }
     const FUniqueNetIdRef ClaimedNetId = ClaimedNetIdPtr.ToSharedRef();
 
     // Type-guard before scheduling verify: the EAC plugin's VerifyIdToken does an unguarded
@@ -2540,20 +2653,14 @@ void AEOSPlayerController::Server_NotifyAntiCheatReady_Implementation(const FStr
     if (ClaimedNetId->GetType() != EOS_SUBSYSTEM)
     {
         UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Server_NotifyAntiCheatReady] PlayerState NetId is not an EOS id (type=%s) - kicking."), *ClaimedNetId->GetType().ToString());
-        if (AGameModeBase* GM = GetWorld() ? GetWorld()->GetAuthGameMode() : nullptr)
-        {
-            if (AGameSession* GS = GM->GameSession)
-            {
-                GS->KickPlayer(this, FText::FromString(TEXT("AntiCheat: invalid identity type")));
-            }
-        }
+        KickForAntiCheat(TEXT("AntiCheat: invalid identity type"));
         return;
     }
 
     IEOSAntiCheat* AntiCheat = IEOSAntiCheat::Get();
     if (!AntiCheat)
     {
-        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Server_NotifyAntiCheatReady] AntiCheat plugin unavailable."));
+        UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Server_NotifyAntiCheatReady] AntiCheat plugin unavailable - ready timeout will kick."));
         return;
     }
 
@@ -2562,7 +2669,7 @@ void AEOSPlayerController::Server_NotifyAntiCheatReady_Implementation(const FStr
         [WeakThis, ClaimedNetId](bool bVerifySucceeded)
         {
             AEOSPlayerController* PC = WeakThis.Get();
-            if (!PC) { return; }
+            if (!PC || PC->bAntiCheatKicked) { return; }
 
             // World may already be tearing down (seamless travel, map change, server quit) by the
             // time the async verify completes. KickPlayer on a teardown-stage GameSession is a
@@ -2577,33 +2684,215 @@ void AEOSPlayerController::Server_NotifyAntiCheatReady_Implementation(const FStr
             if (!bVerifySucceeded)
             {
                 UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Server_NotifyAntiCheatReady] IdToken verify failed for %s - kicking."), *OSS_REDACT(ClaimedNetId->ToString()));
-                GS->KickPlayer(PC, FText::FromString(TEXT("AntiCheat: IdToken verify failed")));
+                PC->KickForAntiCheat(TEXT("AntiCheat: IdToken verify failed"));
                 return;
             }
 
-            // Verified - register the joiner with AntiCheat. Mode-specific:
+            // Verified - register the joiner; failure kicks, RemoteAuthComplete later opens the gameplay gate. Mode-specific:
 #if !P2PMODE
             // Dedicated-server: hand off to AEOSGameSession, which calls Server->RegisterClient.
             if (AEOSGameSession* EosGameSession = Cast<AEOSGameSession>(GS))
             {
-                EosGameSession->RegisterAntiCheatClient(ClaimedNetId);
+                EosGameSession->RegisterAntiCheatClient(PC, ClaimedNetId);
             }
 #else
             // Listen-server host: RegisterPeer the joiner on host's local AC Client. Re-fetches
             // IEOSAntiCheat::Get() inside the lambda - the outer AntiCheat local isn't in the
             // capture list. Other peers RegisterPeer via lobby events without JWT verify (they're
             // not the authority - see EAC PeerToPeer trust model).
-            if (IEOSAntiCheat* AC = IEOSAntiCheat::Get())
+            IEOSAntiCheat* AC = IEOSAntiCheat::Get();
+            IEOSAntiCheatClient* Client = AC ? AC->GetClient() : nullptr;
+            if (!Client || !Client->RegisterPeer(ClaimedNetId))
             {
-                if (IEOSAntiCheatClient* Client = AC->GetClient())
-                {
-                    Client->RegisterPeer(ClaimedNetId);
-                }
+                // Fail closed: the SDK can't kick a peer the host never registered.
+                UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::Server_NotifyAntiCheatReady] RegisterPeer failed for %s - kicking."), *OSS_REDACT(ClaimedNetId->ToString()));
+                PC->KickForAntiCheat(TEXT("AntiCheat: RegisterPeer failed"));
+                return;
             }
+
+            // Always a fresh registration: when a joiner's game connection ends, the GameMode's Logout
+            // unregisters it here and the joiner's EndPlay unregisters the host, so a rejoin waits for a
+            // new RemoteAuthComplete (HandlePeerAuthenticated).
+            PC->MarkAntiCheatRegistered();
 #endif
         }));
 #endif // ACMODE
 }
+
+// =====================================================================
+// Tutorial 10: AC gameplay gate (server-side).
+//
+// EAC guidance: block gameplay until the player is fully authenticated with
+// anti-cheat. Here that means the joiner gets no pawn:
+//   PostLogin           -> gate closed, ready timeout starts
+//   ready RPC -> verify -> RegisterClient (P2PMODE=0) / RegisterPeer (P2PMODE=1) -> auth backstop starts
+//   RemoteAuthComplete  -> pawn spawns
+//   failure / timeout   -> KickForAntiCheat
+// The ready timeout catches clients that never send the ready RPC (the SDK can't
+// time out a client it never registered). Once registered, the SDK's own auth
+// timeout normally kicks a client that never authenticates; the game-side auth
+// backstop covers anything it misses. The gate covers spawn / possession only.
+//
+// TODO(anti-cheat): known gap - two connections with the same UniqueId.
+// VerifyIdToken proves the identity of the connection that sent the ready RPC, but
+// the code after it picks controllers by UniqueId alone:
+//   - HandlePeerAuthenticated / AEOSGameSession::HandleAntiCheatClientAuthenticated
+//     open the gate for the FIRST PC with that id;
+//   - violation kicks (HandleAntiCheatViolationP2P / AEOSGameSession::HandleAntiCheatViolation)
+//     kick the first match;
+//   - Logout (P2P) / AEOSGameSession::NotifyLogout unregister by id, whichever PC is leaving;
+//   - KickForAntiCheat removes that id from voice / the lobby even if it was never verified.
+// The engine doesn't reject a second login with an id already in the game, so a second
+// connection that never verifies could be handed another player's gate-open, get them
+// removed from voice / the lobby, or unregister them on disconnect (they'd keep their
+// pawn with EAC no longer enforcing). Fix: act only on the PC that passed verification
+// (bAntiCheatRegistered) for gate-open, kicks, unregister and voice / lobby removal, and
+// reject duplicate UniqueIds at login (AGameModeBase::PreLogin).
+// =====================================================================
+
+#if ACMODE
+bool AEOSPlayerController::ShouldGateOnAntiCheat() const
+{
+#if WITH_EDITOR
+    // The AC plugin is disabled in editor builds, so PIE clients never send the ready RPC.
+    return false;
+#else
+    // The listen-server host's own controller is never gated.
+    if (IsLocalController())
+    {
+        return false;
+    }
+#if !P2PMODE
+    return IsRunningDedicatedServer();
+#else
+    return GetNetMode() == NM_ListenServer;
+#endif
+#endif // WITH_EDITOR
+}
+
+bool AEOSPlayerController::CanRestartPlayer()
+{
+    // Covers the initial spawn and ServerRestartPlayer (both go through PlayerCanRestart).
+    if (ShouldGateOnAntiCheat() && !bAntiCheatAuthenticated)
+    {
+        UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::CanRestartPlayer] %s held out of gameplay until authenticated with anti-cheat."), *GetName());
+        return false;
+    }
+    return Super::CanRestartPlayer();
+}
+
+void AEOSPlayerController::StartAntiCheatReadyTimeout()
+{
+    // Covers the client's map load, the ready RPC and VerifyIdToken.
+    int32 TimeoutSeconds = 60;
+    GConfig->GetInt(TEXT("EOSAntiCheat"), TEXT("ClientReadyTimeoutSeconds"), TimeoutSeconds, GEngineIni);
+    TimeoutSeconds = FMath::Max(TimeoutSeconds, 1);
+
+    GetWorldTimerManager().SetTimer(AntiCheatReadyTimeoutHandle, FTimerDelegate::CreateWeakLambda(this, [this]()
+        {
+            if (bAntiCheatRegistered)
+            {
+                return;
+            }
+
+            UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::StartAntiCheatReadyTimeout] %s not registered with anti-cheat in time - kicking."), *GetName());
+            KickForAntiCheat(TEXT("AntiCheat: not registered in time"));
+        }), static_cast<float>(TimeoutSeconds), false);
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::StartAntiCheatReadyTimeout] %s has %ds to register with anti-cheat."), *GetName(), TimeoutSeconds);
+}
+
+void AEOSPlayerController::MarkAntiCheatRegistered()
+{
+    if (bAntiCheatRegistered || bAntiCheatKicked)
+    {
+        return;
+    }
+    bAntiCheatRegistered = true;
+
+    // Backstop until RemoteAuthComplete. The SDK normally kicks first (its auth timeout is shorter);
+    // this catches any path where it never raises a RemovePlayer for this player.
+    int32 TimeoutSeconds = 90;
+    GConfig->GetInt(TEXT("EOSAntiCheat"), TEXT("ClientAuthTimeoutSeconds"), TimeoutSeconds, GEngineIni);
+    TimeoutSeconds = FMath::Max(TimeoutSeconds, 1);
+
+    GetWorldTimerManager().SetTimer(AntiCheatReadyTimeoutHandle, FTimerDelegate::CreateWeakLambda(this, [this]()
+        {
+            if (bAntiCheatAuthenticated)
+            {
+                return;
+            }
+
+            UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::MarkAntiCheatRegistered] %s not authenticated with anti-cheat in time - kicking."), *GetName());
+            KickForAntiCheat(TEXT("AntiCheat: not authenticated in time"));
+        }), static_cast<float>(TimeoutSeconds), false);
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::MarkAntiCheatRegistered] %s registered with anti-cheat - waiting up to %ds for RemoteAuthComplete."), *GetName(), TimeoutSeconds);
+}
+
+void AEOSPlayerController::MarkAntiCheatAuthenticated()
+{
+    // A kick that raced the auth callback wins.
+    if (bAntiCheatAuthenticated || bAntiCheatKicked)
+    {
+        return;
+    }
+    bAntiCheatAuthenticated = true;
+    bAntiCheatRegistered = true;  // Authentication implies registration.
+    GetWorldTimerManager().ClearTimer(AntiCheatReadyTimeoutHandle);
+
+    UE_LOG(LogEOSOSSTutorial, Verbose, TEXT("[AEOSPlayerController::MarkAntiCheatAuthenticated] %s authenticated with anti-cheat - letting them into gameplay."), *GetName());
+
+    // RestartPlayer doesn't check for an existing pawn.
+    AGameModeBase* GM = GetWorld() ? GetWorld()->GetAuthGameMode() : nullptr;
+    if (GM && !GetPawn() && GM->PlayerCanRestart(this))
+    {
+        GM->RestartPlayer(this);
+    }
+}
+
+void AEOSPlayerController::KickForAntiCheat(const FString& Reason)
+{
+    if (bAntiCheatKicked)
+    {
+        return;
+    }
+    bAntiCheatKicked = true;
+
+    AGameModeBase* GM = GetWorld() ? GetWorld()->GetAuthGameMode() : nullptr;
+    AGameSession* GS = GM ? GM->GameSession : nullptr;
+    if (!GS)
+    {
+        return;
+    }
+
+    // Before KickPlayer, which destroys this controller and its PlayerState.
+    const FUniqueNetIdPtr PlayerId = PlayerState ? PlayerState->GetUniqueId().GetUniqueNetId() : nullptr;
+    if (PlayerId.IsValid())
+    {
+#if !P2PMODE
+        // Dedicated server: revoke voice access; a kicked client can't be trusted to leave.
+        if (AEOSGameSession* EosGameSession = Cast<AEOSGameSession>(GS))
+        {
+            EosGameSession->RemovePlayerFromVoiceRoom(PlayerId.ToSharedRef());
+        }
+#else
+        // P2P host: also kick from the lobby (and its voice room).
+        RemoveFromLobbyForAntiCheat(GetWorld(), LobbyName, *PlayerId);
+#endif
+    }
+
+    GS->KickPlayer(this, FText::FromString(Reason));
+}
+
+void AEOSPlayerController::ClientWasKicked_Implementation(const FText& KickReason)
+{
+    // Runs on the kicked client. The engine default does nothing; quit so EndPlay's teardown
+    // (voice leave, EOS logout) runs.
+    UE_LOG(LogEOSOSSTutorial, Error, TEXT("[AEOSPlayerController::ClientWasKicked] Kicked by the server: %s - quitting."), *KickReason.ToString());
+    ConsoleCommand(TEXT("quit"));
+}
+#endif // ACMODE
 
 // =====================================================================
 // Tutorial 11: Voice chat via EOS RTC, dedicated-server branch (P2PMODE=0).
@@ -2613,7 +2902,8 @@ void AEOSPlayerController::Server_NotifyAntiCheatReady_Implementation(const FStr
 // Client_ReceiveVoiceCredentials, and the client runs IVoiceChat Connect -> Login -> JoinChannel.
 // Voice media flows directly between clients and EOS RTC servers; the game server never
 // handles voice data. Teardown on EndPlay: LeaveChannel -> Logout -> ReleaseUser -> Disconnect.
-// Requires `Voice:createRoomToken` enabled on the Server client in the EOS Dev Portal.
+// Requires `Voice:createRoomToken` enabled on the Server client in the EOS Dev Portal (plus
+// `Voice:kick` with ACMODE=1, for anti-cheat kicks).
 //
 // Preferred alternative: extend the EOSVoiceChat plugin with a server-facing
 // QueryJoinRoomToken wrapper around EOS_RTCAdmin_QueryJoinRoomToken. The plugin already owns

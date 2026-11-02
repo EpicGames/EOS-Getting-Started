@@ -48,6 +48,29 @@ The project's `ACMODE` build flag (default `0`, in `EOS_OSS_Tutorial.Build.cs`) 
 
    `anticheat_integritytool.exe` uses both files to sign the manifest it uploads to the Dev Portal. `Tools/` is gitignored so the keys won't leak through git accidentally, but **the private key is credential material** — treat it like you'd treat your `Server` artifact's `ClientSecret` (don't paste it in chat, don't archive it next to a packaged build, don't share it across team accounts that aren't supposed to be able to sign builds). If you'd rather store the keys outside the plugin tree (e.g. a gitignored `Restricted/NoRedist/EACCerts/`), pass the location to `ProtectEOSPackage` with `-CertDir=<path>`.
 
+## Gameplay gate
+
+EAC guidance is to block gameplay until a player is fully authenticated with anti-cheat (`EOS_ACCCAS_RemoteAuthComplete`, see [*Using Anti-Cheat*](https://dev.epicgames.com/docs/epic-online-services/trust-and-safety/anti-cheat-interfaces/using-anti-cheat) in the EOS docs). This sample does that by withholding the joining player's **pawn**. The authority is the dedicated server (`P2PMODE=0`) or the listen-server host (`P2PMODE=1`).
+
+1. `PostLogin`: `CanRestartPlayer` refuses the spawn and a kick timer starts (`[EOSAntiCheat] ClientReadyTimeoutSeconds`, default 60).
+2. `Server_NotifyAntiCheatReady` → VerifyIdToken (also checks the token's user and deployment) → `RegisterClient` (dedicated server) or `RegisterPeer` (host). Success swaps the timer for an auth backstop (`ClientAuthTimeoutSeconds`, default 90); failure kicks.
+3. `RemoteAuthComplete` (`OnClientAuthenticated` / `OnPeerAuthenticated`): `MarkAntiCheatAuthenticated` spawns the pawn (and, on a dedicated server, voice credentials are minted).
+4. Never authenticates: the SDK's own timeout (`RegisterTimeoutSeconds` / `PeerAuthenticationTimeoutSeconds`) raises a `RemovePlayer` action and the player is kicked without ever getting a pawn; the auth backstop catches anything the SDK misses. The ready timer covers clients that never send the ready RPC - the SDK can't time out a client it never registered.
+
+After registration the SDK enforces through `RemovePlayer` actions (`AuthenticationFailed`, `HeartbeatTimeout`, ...), routed to `KickForAntiCheat`. That single kick path also:
+
+- **Dedicated server:** removes the player from voice and revokes their token (Voice Web API `removeParticipant`).
+- **P2P host:** removes the player from the lobby and its voice room (`RemovePlayerFromSession` → `EOS_Lobby_KickMember`).
+- **Kicked client:** `ClientWasKicked` logs the reason and quits.
+
+Notes:
+
+- **Reconnect:** when a player's game connection ends, both ends drop their side, so a rejoin authenticates again. Dedicated server: `UnregisterClient` on the server, `EndSession` on the client. P2P: the host and the joiner unregister each other (GameMode `Logout` / `EndPlay`).
+- **Flagged host (P2P):** a joiner whose anti-cheat flags the lobby host leaves the lobby and quits; the host can't be trusted to act on its own violation.
+- **Dev Portal:** the `Server` client policy needs the Voice `kick` action alongside `createRoomToken`.
+- **Editor builds aren't gated** - the plugin is disabled there.
+- **Scope:** the gate covers spawn / possession only; a shipping game should also check it in other gameplay-relevant server paths.
+
 ## Packaging flow
 
 Two UAT commands. Both are RunUAT-native - no shell scripting outside the UE toolchain. The pipeline is identical for server-mode and P2P listen-server builds; only the `-Artifact` argument in Step 2 differs.

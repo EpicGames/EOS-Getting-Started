@@ -25,6 +25,7 @@ public:
 	virtual void UnregisterClient(const FUniqueNetIdRef& PlayerId) override;
 	virtual void ReceiveMessageFromClient(const FUniqueNetIdRef& PlayerId, TConstArrayView<uint8> MessageBytes) override;
 	virtual FOnMessageToClient& OnMessageToClient() override { return MessageToClientDelegate; }
+	virtual FOnClientAuthenticated& OnClientAuthenticated() override { return ClientAuthenticatedDelegate; }
 
 private:
 	// SDK -> C++ trampolines. Each forwards the call to the instance pointed to by ClientData (which we set to `this` when binding).
@@ -57,6 +58,9 @@ private:
 
 	// Multicast for the SDK's outbound message-to-client stream. Forwarded to subscribers (the game's reliable RPC layer).
 	FOnMessageToClient MessageToClientDelegate;
+
+	// Multicast for RemoteAuthComplete. Forwarded to subscribers (the game's gameplay gate).
+	FOnClientAuthenticated ClientAuthenticatedDelegate;
 
 	// Back-reference to the module-level violation delegate so we can broadcast from inside our callbacks without a runtime IEOSAntiCheat::Get() lookup.
 	FOnAntiCheatViolation& ViolationDelegate;

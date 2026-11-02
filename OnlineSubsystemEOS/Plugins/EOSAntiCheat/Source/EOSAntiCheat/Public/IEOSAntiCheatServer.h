@@ -42,6 +42,10 @@ public:
 	// Multicast accessor. Broadcasts when the SDK produces a message to deliver to a specific client. Subscribers are responsible for transporting Bytes to that player via the game's own reliable channel (e.g. a Client_ RPC).
 	DECLARE_MULTICAST_DELEGATE_TwoParams(FOnMessageToClient, const FUniqueNetIdRef& /*PlayerId*/, const TArray<uint8>& /*Bytes*/);
 	virtual FOnMessageToClient& OnMessageToClient() = 0;
+
+	// Multicast accessor. Broadcasts when a registered client reaches EOS_ACCCAS_RemoteAuthComplete (authentication fully completed with the EAC backend).
+	DECLARE_MULTICAST_DELEGATE_OneParam(FOnClientAuthenticated, const FUniqueNetIdRef& /*PlayerId*/);
+	virtual FOnClientAuthenticated& OnClientAuthenticated() = 0;
 };
 
 #endif // !P2PMODE

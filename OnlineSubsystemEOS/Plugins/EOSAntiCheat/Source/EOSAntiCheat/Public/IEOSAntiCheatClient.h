@@ -57,5 +57,9 @@ public:
 	// Multicast accessor. Fires when the SDK requests a RemovePlayer action. Peer is the offending PUID, or null when the LOCAL client was flagged (PEER_SELF).
 	DECLARE_MULTICAST_DELEGATE_TwoParams(FOnPeerActionRequired, const FUniqueNetIdPtr& /*Peer, null = self*/, const FString& /*Reason*/);
 	virtual FOnPeerActionRequired& OnPeerActionRequired() = 0;
+
+	// Multicast accessor. Fires when a registered peer reaches EOS_ACCCAS_RemoteAuthComplete (authentication fully completed with the EAC backend).
+	DECLARE_MULTICAST_DELEGATE_OneParam(FOnPeerAuthenticated, const FUniqueNetIdRef& /*Peer*/);
+	virtual FOnPeerAuthenticated& OnPeerAuthenticated() = 0;
 #endif // P2PMODE
 };

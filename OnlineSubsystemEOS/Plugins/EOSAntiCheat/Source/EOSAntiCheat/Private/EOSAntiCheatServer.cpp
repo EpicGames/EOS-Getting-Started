@@ -315,6 +315,17 @@ void FEOSAntiCheatServer::OnClientAuthStatusChanged(const EOS_AntiCheatCommon_On
 	{
 		const FString Reason = FString::Printf(TEXT("AntiCheat: auth status %s"), *LexToStringAuthStatus(Info.ClientAuthStatus));
 		FlagForKick(Info.ClientHandle, Reason);
+		return;
+	}
+
+	// Fully authenticated with the EAC backend - the game can let the player into gameplay. A client
+	// that never gets here is kicked by the SDK's RegisterTimeout (OnClientActionRequired).
+	if (Info.ClientAuthStatus == EOS_EAntiCheatCommonClientAuthStatus::EOS_ACCCAS_RemoteAuthComplete)
+	{
+		if (const FUniqueNetIdRef* PlayerIdPtr = Registered.Find(static_cast<EOS_ProductUserId>(Info.ClientHandle)))
+		{
+			ClientAuthenticatedDelegate.Broadcast(*PlayerIdPtr);
+		}
 	}
 }
 
